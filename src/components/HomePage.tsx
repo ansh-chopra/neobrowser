@@ -26,6 +26,8 @@ interface HomePageProps {
   onShieldPress?: () => void;
   vpnConnected?: boolean;
   darkMode?: boolean;
+  onOpenSettings?: () => void;
+  onToggleDarkMode?: () => void;
 }
 
 const SUGGESTIONS = [
@@ -47,6 +49,8 @@ export function HomePage({
   onShieldPress,
   vpnConnected,
   darkMode,
+  onOpenSettings,
+  onToggleDarkMode,
 }: HomePageProps) {
   const c = darkMode ? darkColors : colors;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -141,6 +145,18 @@ export function HomePage({
       <View style={[styles.bgCircle1, darkMode && { backgroundColor: c.blue + '08' }]} />
       <View style={[styles.bgCircle2, darkMode && { backgroundColor: c.indigo + '08' }]} />
 
+      {/* Top bar with settings */}
+      {!hasText && (
+        <View style={styles.topBar}>
+          <TouchableOpacity style={styles.topBarBtn} onPress={onToggleDarkMode} activeOpacity={0.7}>
+            <Ionicons name={darkMode ? 'sunny' : 'moon-outline'} size={18} color={darkMode ? colors.shield : c.gray400} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.topBarBtn} onPress={onOpenSettings} activeOpacity={0.7}>
+            <Ionicons name="settings-outline" size={18} color={c.gray400} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <Animated.View
         style={[
           styles.content,
@@ -149,10 +165,9 @@ export function HomePage({
       >
         {/* Logo */}
         <View style={[styles.hero, hasText && styles.heroCompact]}>
-          <View style={styles.logoRow}>
-            <Text style={[styles.logo, hasText && styles.logoCompact, darkMode && { color: c.gray800 }]}>neo</Text>
-            <View style={[styles.logoDot, hasText && styles.logoDotCompact]} />
-          </View>
+          <Text style={[styles.logo, hasText && styles.logoCompact, darkMode && { color: c.gray800 }]}>
+            neo<Text style={styles.logoDotText}>.</Text>
+          </Text>
           {!hasText && (
             <Text style={[styles.tagline, darkMode && { color: c.gray400 }]}>Search, browse, or build anything</Text>
           )}
@@ -321,7 +336,23 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: '18%',
+    paddingTop: '12%',
+  },
+  // Top bar
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  topBarBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // Hero
   hero: {
@@ -330,10 +361,6 @@ const styles = StyleSheet.create({
   },
   heroCompact: {
     marginBottom: spacing.md,
-  },
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
   },
   logo: {
     fontSize: 56,
@@ -344,19 +371,8 @@ const styles = StyleSheet.create({
   logoCompact: {
     fontSize: 32,
   },
-  logoDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.blue,
-    marginBottom: 12,
-    marginLeft: 2,
-  },
-  logoDotCompact: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    marginBottom: 7,
+  logoDotText: {
+    color: colors.blue,
   },
   tagline: {
     fontSize: 16,

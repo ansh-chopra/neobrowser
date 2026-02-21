@@ -1233,6 +1233,8 @@ export function BrowserScreen() {
             onShieldPress={() => setPrivacyPanelVisible(true)}
             vpnConnected={vpnStatus === 'connected'}
             darkMode={darkMode}
+            onOpenSettings={() => setSettingsVisible(true)}
+            onToggleDarkMode={handleToggleDarkMode}
           />
         ) : (
           <View style={styles.splitContainer}>
