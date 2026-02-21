@@ -126,6 +126,32 @@ export async function sendToGemini(
   }
 }
 
+// Simple Gemini call without agent prompt - for general queries like YouTube search
+export async function queryGemini(
+  apiKey: string,
+  prompt: string
+): Promise<string> {
+  const response = await fetch(
+    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 2048,
+        },
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Gemini API error (${response.status})`);
+  }
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
 // Streaming variant for the AI agent's final responses
 // Uses Gemini's streamGenerateContent endpoint
 // onChunk is called with accumulated text as each chunk arrives

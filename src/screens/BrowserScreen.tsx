@@ -27,7 +27,7 @@ import { BuilderPanel } from '../components/BuilderPanel';
 import { SettingsModal, API_KEY_STORAGE } from '../components/SettingsModal';
 import { PrivacyShieldPanel } from '../components/PrivacyShieldPanel';
 import { VPNPanel, VPNServer, VPNStatus, VPN_SERVERS } from '../components/VPNPanel';
-import { sendToGemini, sendToGeminiStreaming, GeminiMessage, BrowserAction } from '../services/gemini';
+import { sendToGemini, sendToGeminiStreaming, queryGemini, GeminiMessage, BrowserAction } from '../services/gemini';
 import { buildApp } from '../services/builder';
 import { searchWithAI } from '../services/search';
 import {
@@ -45,6 +45,69 @@ import { colors, shadows, spacing, radius, typography } from '../theme';
 const HOME_URL = 'neo://home';
 const SEARCH_URL = 'https://www.google.com/search?q=';
 const MAX_AGENT_STEPS = 15;
+
+// YouTube embed support - extract video ID and convert to embeddable URL
+function getYouTubeVideoId(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtu\.be\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function isYouTubeUrl(url: string): boolean {
+  return /(?:youtube\.com|youtu\.be)/.test(url);
+}
+
+function getYouTubeEmbedUrl(videoId: string): string {
+  return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+}
+
+// Build a YouTube search results page as a data URI
+function buildYouTubeSearchPage(query: string, videos: { id: string; title: string; channel: string }[]): string {
+  const videoCards = videos.map((v) => `
+    <div style="display:flex;gap:16px;padding:16px;background:#fff;border-radius:12px;margin-bottom:12px;cursor:pointer;border:1px solid #e5e7eb;transition:all 0.2s" onclick="window.parent.postMessage(JSON.stringify({type:'youtubePlay',videoId:'${v.id}'}),'*')" onmouseover="this.style.borderColor='#ef4444';this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#e5e7eb';this.style.transform='none'">
+      <div style="position:relative;flex-shrink:0;width:200px;height:112px;border-radius:8px;overflow:hidden;background:#000">
+        <img src="https://img.youtube.com/vi/${v.id}/mqdefault.jpg" style="width:100%;height:100%;object-fit:cover" />
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:40px;height:40px;background:rgba(255,0,0,0.9);border-radius:8px;display:flex;align-items:center;justify-content:center">
+          <div style="width:0;height:0;border-left:14px solid white;border-top:8px solid transparent;border-bottom:8px solid transparent;margin-left:3px"></div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:4px;line-height:1.3">${v.title}</div>
+        <div style="font-size:13px;color:#6b7280">${v.channel}</div>
+      </div>
+    </div>
+  `).join('');
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f9fafb;padding:24px}</style></head>
+<body>
+<div style="max-width:720px;margin:0 auto">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="#ef4444"><path d="M23.5 6.5a3 3 0 00-2.1-2.1C19.5 4 12 4 12 4s-7.5 0-9.4.4A3 3 0 00.5 6.5S0 8.7 0 11v2c0 2.3.5 4.5.5 4.5a3 3 0 002.1 2.1c1.9.4 9.4.4 9.4.4s7.5 0 9.4-.4a3 3 0 002.1-2.1s.5-2.2.5-4.5v-2c0-2.3-.5-4.5-.5-4.5z"/><path d="M9.75 15.02l6.28-3.52-6.28-3.52v7.04z" fill="#fff"/></svg>
+    <span style="font-size:18px;font-weight:700;color:#1a1a2e">YouTube Results for "${query}"</span>
+  </div>
+  ${videoCards}
+  <div style="text-align:center;color:#9ca3af;font-size:12px;margin-top:16px">Click a video to play in NeoBrowser</div>
+</div>
+</body></html>`;
+}
+
+// Build a YouTube player page as a data URI
+function buildYouTubePlayerPage(videoId: string, title?: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#000;display:flex;align-items:center;justify-content:center;height:100vh;font-family:-apple-system,BlinkMacSystemFont,sans-serif}</style></head>
+<body>
+<div style="width:100%;max-width:960px;aspect-ratio:16/9">
+  <iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0" style="width:100%;height:100%;border:none;border-radius:8px" allow="autoplay;encrypted-media;picture-in-picture" allowfullscreen></iframe>
+</div>
+</body></html>`;
+}
 
 function isHomePage(url: string) {
   return url === HOME_URL || url === '';
@@ -141,6 +204,33 @@ export function BrowserScreen() {
       }
     });
   }, []);
+
+  // Listen for YouTube video play messages from iframe
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handler = (event: MessageEvent) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data.type === 'youtubePlay' && data.videoId) {
+          const embedUrl = getYouTubeEmbedUrl(data.videoId);
+          const ytUrl = `https://www.youtube.com/watch?v=${data.videoId}`;
+          setCurrentUrl(ytUrl);
+          setWebViewUrl(embedUrl);
+          const hist = navHistoryRef.current;
+          const idx = navIndexRef.current;
+          navHistoryRef.current = [...hist.slice(0, idx + 1), ytUrl];
+          navIndexRef.current = navHistoryRef.current.length - 1;
+          setCanGoBack(navIndexRef.current > 0);
+          setCanGoForward(false);
+          setTabs((prev) =>
+            prev.map((t) => (t.id === activeTabId ? { ...t, url: ytUrl, title: 'YouTube Video' } : t))
+          );
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [activeTabId]);
 
   const showHomePage = isHomePage(currentUrl);
 
@@ -286,8 +376,33 @@ export function BrowserScreen() {
       return; // Don't navigate to blocked URL
     }
 
-    // On web, external URLs can't load in iframes
+    // On web, handle YouTube URLs specially (embed player), others open in new tab
     if (Platform.OS === 'web' && !isHomePage(finalUrl) && !finalUrl.startsWith('data:') && !finalUrl.startsWith('neo://')) {
+      if (isYouTubeUrl(finalUrl)) {
+        const videoId = getYouTubeVideoId(finalUrl);
+        if (videoId) {
+          const embedUrl = getYouTubeEmbedUrl(videoId);
+          setCurrentUrl(finalUrl);
+          setWebViewUrl(embedUrl);
+          if (Platform.OS === 'web') {
+            const hist = navHistoryRef.current;
+            const idx = navIndexRef.current;
+            navHistoryRef.current = [...hist.slice(0, idx + 1), finalUrl];
+            navIndexRef.current = navHistoryRef.current.length - 1;
+            setCanGoBack(navIndexRef.current > 0);
+            setCanGoForward(false);
+          }
+          setTabs((prev) =>
+            prev.map((t) => (t.id === activeTabId ? { ...t, url: finalUrl, title: 'YouTube Video' } : t))
+          );
+          setLoading(false);
+          return;
+        }
+        // YouTube homepage (no video ID) — show trending videos
+        performYouTubeSearch('trending popular videos 2025');
+        return;
+      }
+      // Non-YouTube external URLs open in new tab
       window.open(finalUrl, '_blank');
       return;
     }
@@ -346,9 +461,73 @@ export function BrowserScreen() {
     setLoading(false);
   };
 
+  // YouTube search: uses Gemini to suggest videos, displays embeddable results
+  const performYouTubeSearch = async (query: string) => {
+    if (!apiKey) {
+      setSettingsVisible(true);
+      return;
+    }
+    setSearchLoading(true);
+    setLoading(true);
+    try {
+      const prompt = `I want to watch YouTube videos about: "${query}". Give me 6 real, popular YouTube videos. Respond ONLY with a JSON array, nothing else. Format: [{"id":"dQw4w9WgXcQ","title":"Video Title","channel":"Channel Name"}]. The id must be a real 11-character YouTube video ID. Focus on well-known, popular videos that actually exist on YouTube.`;
+      const rawText = await queryGemini(apiKey, prompt);
+      let videos: { id: string; title: string; channel: string }[] = [];
+      try {
+        const cleaned = rawText.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+        // Find the JSON array in the response
+        const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (arrMatch) {
+          videos = JSON.parse(arrMatch[0]);
+          // Filter out any entries with missing fields
+          videos = videos.filter(v => v.id && v.title && v.channel);
+        }
+      } catch {}
+      if (videos.length === 0) {
+        // Fallback with well-known video IDs
+        videos = [
+          { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', channel: 'Rick Astley' },
+          { id: 'jNQXAC9IVRw', title: 'Me at the zoo', channel: 'jawed' },
+          { id: '9bZkp7q19f0', title: 'PSY - GANGNAM STYLE', channel: 'officialpsy' },
+        ];
+      }
+      const html = buildYouTubeSearchPage(query, videos);
+      const htmlDataUri = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      const ytSearchUrl = `neo://youtube?q=${encodeURIComponent(query)}`;
+      setCurrentUrl(ytSearchUrl);
+      setWebViewUrl(htmlDataUri);
+      if (Platform.OS === 'web') {
+        const hist = navHistoryRef.current;
+        const idx = navIndexRef.current;
+        navHistoryRef.current = [...hist.slice(0, idx + 1), ytSearchUrl];
+        navIndexRef.current = navHistoryRef.current.length - 1;
+        setCanGoBack(navIndexRef.current > 0);
+        setCanGoForward(false);
+      }
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTabId
+            ? { ...t, url: ytSearchUrl, title: `YouTube: ${query}` }
+            : t
+        )
+      );
+    } catch (error: any) {
+      console.error('YouTube Search error:', error);
+    }
+    setSearchLoading(false);
+    setLoading(false);
+  };
+
   const handleHomeSearch = (query: string) => {
     if (Platform.OS === 'web') {
-      performAISearch(query);
+      // Detect YouTube-related queries
+      const lq = query.toLowerCase();
+      if (lq.includes('youtube') || lq.startsWith('watch ') || lq.startsWith('play ') || lq.includes('video of ') || lq.includes('music video')) {
+        const cleanQuery = query.replace(/youtube/gi, '').replace(/^(watch|play)\s+/i, '').trim();
+        performYouTubeSearch(cleanQuery || query);
+      } else {
+        performAISearch(query);
+      }
     } else {
       handleNavigate(`${SEARCH_URL}${encodeURIComponent(query)}`);
     }
@@ -809,12 +988,14 @@ export function BrowserScreen() {
   // Render a WebView (used for both main and split)
   const renderWebView = (viewUrl: string, ref?: any, isSplit?: boolean) => {
     if (Platform.OS === 'web') {
+      const isYTEmbed = viewUrl.includes('youtube.com/embed/');
       return (
         <iframe
           key={viewUrl}
           src={viewUrl}
-          style={{ flex: 1, border: 'none', width: '100%', height: '100%' } as any}
+          style={{ flex: 1, border: 'none', width: '100%', height: '100%', ...(isYTEmbed ? { background: '#000' } : {}) } as any}
           onLoad={() => !isSplit && setLoading(false)}
+          {...(isYTEmbed ? { allow: 'autoplay; encrypted-media; picture-in-picture', allowFullScreen: true } : {})}
         />
       );
     }
