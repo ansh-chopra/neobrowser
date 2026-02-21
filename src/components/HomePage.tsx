@@ -187,12 +187,7 @@ export function HomePage({
                 </Text>
               </View>
             </View>
-            {vpnConnected && (
-              <View style={styles.vpnMiniPill}>
-                <View style={styles.vpnMiniDot} />
-                <Text style={styles.vpnMiniText}>VPN</Text>
-              </View>
-            )}
+            {/* VPN mini pill — hidden for v1 */}
           </TouchableOpacity>
         )}
 

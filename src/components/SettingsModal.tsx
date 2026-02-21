@@ -322,24 +322,7 @@ export function SettingsModal({
               </View>
             )}
 
-            {/* VPN Section */}
-            {onOpenVPN && (
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>VPN</Text>
-                <TouchableOpacity style={styles.settingRow} onPress={onOpenVPN}>
-                  <View style={[styles.settingIcon, { backgroundColor: vpnStatus === 'connected' ? colors.vpnBg : colors.gray100 }]}>
-                    <Ionicons name="globe" size={16} color={vpnStatus === 'connected' ? colors.vpn : colors.gray400} />
-                  </View>
-                  <View style={styles.settingInfo}>
-                    <Text style={styles.settingTitle}>VPN</Text>
-                    <Text style={styles.settingDesc}>
-                      {vpnStatus === 'connected' ? 'Connected' : vpnStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.gray300} />
-                </TouchableOpacity>
-              </View>
-            )}
+            {/* VPN Section — hidden for v1 */}
 
             {/* AI Section — subtle key display */}
             <View style={styles.section}>

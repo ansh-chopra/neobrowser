@@ -167,13 +167,7 @@ export function URLBar({
           selectTextOnFocus
         />
 
-        {/* VPN indicator */}
-        {!focused && vpnConnected && (
-          <TouchableOpacity onPress={onVpnPress} style={styles.vpnBadge} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-            <View style={styles.vpnDot} />
-            <Text style={styles.vpnText}>VPN</Text>
-          </TouchableOpacity>
-        )}
+        {/* VPN indicator — hidden for v1 */}
 
         {focused && text.length > 0 && (
           <TouchableOpacity onPress={() => setText('')} style={styles.clearBtn}>

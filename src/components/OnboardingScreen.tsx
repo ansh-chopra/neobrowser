@@ -135,7 +135,6 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
               {[
                 { icon: 'ban', label: 'Ad Blocker', desc: 'Block ads on every page', color: colors.green },
                 { icon: 'eye-off', label: 'Tracker Protection', desc: 'Stop cross-site tracking', color: colors.blue },
-                { icon: 'globe', label: 'Built-in VPN', desc: 'One-tap secure connection', color: VPN_GREEN },
                 { icon: 'lock-closed', label: 'HTTPS Everywhere', desc: 'Auto-upgrade connections', color: colors.green },
               ].map((f, i) => (
                 <View key={i} style={styles.featureRow}>

@@ -1201,6 +1201,7 @@ export function BrowserScreen() {
             spaces={spaces}
             activeSpaceId={activeSpaceId}
             onSelectSpace={handleSelectSpace}
+            darkMode={darkMode}
           />
           <URLBar
             url={currentUrl}
@@ -1214,8 +1215,6 @@ export function BrowserScreen() {
             shieldEnabled={shieldEnabled}
             shieldCount={shieldCount}
             onShieldPress={() => setPrivacyPanelVisible(true)}
-            vpnConnected={vpnStatus === 'connected'}
-            onVpnPress={() => setVpnPanelVisible(true)}
           />
         </Animated.View>
       )}
@@ -1231,7 +1230,6 @@ export function BrowserScreen() {
             privacyStats={privacyStats}
             shieldEnabled={shieldEnabled}
             onShieldPress={() => setPrivacyPanelVisible(true)}
-            vpnConnected={vpnStatus === 'connected'}
             darkMode={darkMode}
             onOpenSettings={() => setSettingsVisible(true)}
             onToggleDarkMode={handleToggleDarkMode}
@@ -1370,15 +1368,7 @@ export function BrowserScreen() {
         onCookiePolicy={handleCookiePolicy}
       />
 
-      {/* VPN Panel */}
-      <VPNPanel
-        visible={vpnPanelVisible}
-        onClose={() => setVpnPanelVisible(false)}
-        status={vpnStatus}
-        selectedServer={vpnServer}
-        onToggleVPN={handleToggleVPN}
-        onSelectServer={handleSelectVpnServer}
-      />
+      {/* VPN Panel — hidden for v1 */}
 
       {/* Settings */}
       <SettingsModal
@@ -1389,11 +1379,6 @@ export function BrowserScreen() {
         privacySettings={privacySettings}
         onTogglePrivacy={handleTogglePrivacy}
         onCookiePolicy={handleCookiePolicy}
-        vpnStatus={vpnStatus}
-        onOpenVPN={() => {
-          setSettingsVisible(false);
-          setTimeout(() => setVpnPanelVisible(true), 300);
-        }}
         onOpenPrivacy={() => {
           setSettingsVisible(false);
           setTimeout(() => setPrivacyPanelVisible(true), 300);

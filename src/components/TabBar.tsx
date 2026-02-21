@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, shadows, spacing, radius, typography } from '../theme';
+import { colors, darkColors, shadows, spacing, radius, typography } from '../theme';
 
 export interface Space {
   id: string;
@@ -49,6 +50,7 @@ interface TabBarProps {
   spaces?: Space[];
   activeSpaceId?: string;
   onSelectSpace?: (spaceId: string) => void;
+  darkMode?: boolean;
 }
 
 export function TabBar({
@@ -61,32 +63,67 @@ export function TabBar({
   spaces = DEFAULT_SPACES,
   activeSpaceId,
   onSelectSpace,
+  darkMode,
 }: TabBarProps) {
+  const c = darkMode ? darkColors : colors;
   const filteredTabs = activeSpaceId
     ? tabs.filter((t) => t.spaceId === activeSpaceId || !t.spaceId)
     : tabs;
 
+  const activeIndex = spaces.findIndex((s) => s.id === activeSpaceId);
+  const pillTranslateX = useRef(new Animated.Value(0)).current;
+  const segmentWidth = useRef(0);
+
+  useEffect(() => {
+    if (activeIndex >= 0 && segmentWidth.current > 0) {
+      Animated.spring(pillTranslateX, {
+        toValue: activeIndex * segmentWidth.current,
+        useNativeDriver: true,
+        speed: 20,
+        bounciness: 4,
+      }).start();
+    }
+  }, [activeIndex]);
+
   return (
-    <View style={styles.container}>
-      {/* Space pills */}
+    <View style={[styles.container, { backgroundColor: c.white, borderBottomColor: c.gray100 }]}>
+      {/* Segmented space control */}
       {onSelectSpace && (
-        <View style={styles.spacesRow}>
+        <View style={[styles.segmentedContainer, { backgroundColor: c.gray100 }]}
+          onLayout={(e) => {
+            const containerWidth = e.nativeEvent.layout.width - 8; // subtract padding
+            segmentWidth.current = containerWidth / spaces.length;
+            // Set initial position without animation
+            if (activeIndex >= 0) {
+              pillTranslateX.setValue(activeIndex * segmentWidth.current);
+            }
+          }}
+        >
+          <Animated.View
+            style={[
+              styles.segmentedPill,
+              {
+                width: `${100 / spaces.length}%` as any,
+                backgroundColor: (spaces[activeIndex >= 0 ? activeIndex : 0]?.color || colors.blue) + '18',
+                transform: [{ translateX: pillTranslateX }],
+              },
+            ]}
+          />
           {spaces.map((space) => {
             const isActive = space.id === activeSpaceId;
             return (
               <TouchableOpacity
                 key={space.id}
-                style={[
-                  styles.spacePill,
-                  isActive && { backgroundColor: space.color + '15', borderColor: space.color + '30' },
-                ]}
+                style={styles.segment}
                 onPress={() => onSelectSpace(space.id)}
+                activeOpacity={0.7}
               >
-                <View style={[styles.spaceDot, { backgroundColor: space.color }]} />
+                <View style={[styles.segmentDot, { backgroundColor: space.color }]} />
                 <Text
                   style={[
-                    styles.spaceLabel,
-                    isActive && { color: space.color, fontWeight: '600' },
+                    styles.segmentLabel,
+                    { color: c.gray400 },
+                    isActive && { color: space.color, fontWeight: '700' },
                   ]}
                 >
                   {space.name}
@@ -128,7 +165,7 @@ export function TabBar({
                     onPress={() => onCloseTab(tab.id)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Ionicons name="close" size={14} color={colors.gray400} />
+                    <Ionicons name="close" size={14} color={c.gray400} />
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -136,7 +173,7 @@ export function TabBar({
           })}
         </ScrollView>
         <TouchableOpacity onPress={onNewTab} style={styles.newTabBtn}>
-          <Ionicons name="add" size={20} color={colors.gray500} />
+          <Ionicons name="add" size={20} color={c.gray500} />
         </TouchableOpacity>
         {onBuild && (
           <TouchableOpacity onPress={onBuild} style={styles.buildBtn}>
@@ -158,32 +195,37 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.gray100,
   },
-  spacesRow: {
+  segmentedContainer: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.sm,
-    paddingTop: spacing.xs + 2,
-    gap: spacing.xs,
+    marginHorizontal: spacing.sm,
+    marginTop: spacing.xs + 2,
+    borderRadius: radius.sm,
+    padding: 4,
+    position: 'relative',
   },
-  spacePill: {
+  segmentedPill: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    bottom: 4,
+    borderRadius: radius.sm - 2,
+  },
+  segment: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.gray100,
-    backgroundColor: colors.gray50,
+    height: 30,
   },
-  spaceDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  segmentDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
-  spaceLabel: {
-    fontSize: 11,
+  segmentLabel: {
+    fontSize: 12,
     fontWeight: '500',
-    color: colors.gray500,
   },
   tabRow: {
     flexDirection: 'row',
