@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, shadows, spacing, radius, typography } from '../theme';
+import { colors, darkColors, shadows, spacing, radius, typography } from '../theme';
 import { PrivacyStats } from '../services/privacy';
 
 const { width, height } = Dimensions.get('window');
@@ -25,6 +25,7 @@ interface HomePageProps {
   shieldEnabled?: boolean;
   onShieldPress?: () => void;
   vpnConnected?: boolean;
+  darkMode?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -45,7 +46,9 @@ export function HomePage({
   shieldEnabled,
   onShieldPress,
   vpnConnected,
+  darkMode,
 }: HomePageProps) {
+  const c = darkMode ? darkColors : colors;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const inputSlide = useRef(new Animated.Value(20)).current;
@@ -133,10 +136,10 @@ export function HomePage({
   const totalBlocked = privacyStats ? privacyStats.adsBlocked + privacyStats.trackersBlocked : 0;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, darkMode && { backgroundColor: c.cream }]}>
       {/* Decorative background elements */}
-      <View style={styles.bgCircle1} />
-      <View style={styles.bgCircle2} />
+      <View style={[styles.bgCircle1, darkMode && { backgroundColor: c.blue + '08' }]} />
+      <View style={[styles.bgCircle2, darkMode && { backgroundColor: c.indigo + '08' }]} />
 
       <Animated.View
         style={[
@@ -147,24 +150,24 @@ export function HomePage({
         {/* Logo */}
         <View style={[styles.hero, hasText && styles.heroCompact]}>
           <View style={styles.logoRow}>
-            <Text style={[styles.logo, hasText && styles.logoCompact]}>neo</Text>
+            <Text style={[styles.logo, hasText && styles.logoCompact, darkMode && { color: c.gray800 }]}>neo</Text>
             <View style={[styles.logoDot, hasText && styles.logoDotCompact]} />
           </View>
           {!hasText && (
-            <Text style={styles.tagline}>Search, browse, or build anything</Text>
+            <Text style={[styles.tagline, darkMode && { color: c.gray400 }]}>Search, browse, or build anything</Text>
           )}
         </View>
 
         {/* Privacy Status Card */}
         {!hasText && privacyStats && shieldEnabled && onShieldPress && (
-          <TouchableOpacity style={styles.privacyCard} onPress={onShieldPress} activeOpacity={0.8}>
+          <TouchableOpacity style={[styles.privacyCard, darkMode && { backgroundColor: c.white, borderColor: c.shield + '20' }]} onPress={onShieldPress} activeOpacity={0.8}>
             <View style={styles.privacyCardLeft}>
-              <View style={styles.privacyIconBg}>
+              <View style={[styles.privacyIconBg, darkMode && { backgroundColor: c.shieldBg }]}>
                 <Ionicons name="shield-checkmark" size={16} color={colors.shield} />
               </View>
               <View>
-                <Text style={styles.privacyCardTitle}>Privacy Shield Active</Text>
-                <Text style={styles.privacyCardSub}>
+                <Text style={[styles.privacyCardTitle, darkMode && { color: c.gray800 }]}>Privacy Shield Active</Text>
+                <Text style={[styles.privacyCardSub, darkMode && { color: c.gray400 }]}>
                   {totalBlocked} threats blocked · {privacyStats.httpsUpgrades} HTTPS upgrades
                 </Text>
               </View>
@@ -180,18 +183,18 @@ export function HomePage({
 
         {/* Main input */}
         <Animated.View style={{ transform: [{ translateY: inputSlide }], opacity: fadeAnim }}>
-          <View style={[styles.inputArea, isFocused && styles.inputAreaFocused]}>
+          <View style={[styles.inputArea, isFocused && styles.inputAreaFocused, darkMode && { backgroundColor: c.white, borderColor: c.gray100 }]}>
             <View style={styles.inputRow}>
-              <View style={[styles.inputIcon, hasText && styles.inputIconActive]}>
-                <Ionicons name="sparkles" size={15} color={hasText ? colors.white : colors.gray300} />
+              <View style={[styles.inputIcon, hasText && styles.inputIconActive, darkMode && !hasText && { backgroundColor: c.gray100 }]}>
+                <Ionicons name="sparkles" size={15} color={hasText ? colors.white : c.gray300} />
               </View>
               <TextInput
                 ref={inputRef}
-                style={styles.input}
+                style={[styles.input, darkMode && { color: c.gray800 }]}
                 value={text}
                 onChangeText={setText}
                 placeholder="Search, ask AI, or describe an app..."
-                placeholderTextColor={colors.gray400}
+                placeholderTextColor={c.gray400}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 onSubmitEditing={handleSearchGoogle}
@@ -212,13 +215,13 @@ export function HomePage({
         {hasText && (
           <View style={styles.actions}>
             <Animated.View style={makeCardStyle(card1)}>
-              <TouchableOpacity style={styles.actionCard} onPress={handleSearchGoogle} activeOpacity={0.7}>
-                <View style={[styles.actionIcon, { backgroundColor: '#EFF6FF' }]}>
+              <TouchableOpacity style={[styles.actionCard, darkMode && { backgroundColor: c.white, borderColor: c.gray100 }]} onPress={handleSearchGoogle} activeOpacity={0.7}>
+                <View style={[styles.actionIcon, { backgroundColor: darkMode ? c.blue + '20' : '#EFF6FF' }]}>
                   <Ionicons name="search" size={18} color={colors.blue} />
                 </View>
                 <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Search the web</Text>
-                  <Text style={styles.actionSub} numberOfLines={1}>"{text.trim()}"</Text>
+                  <Text style={[styles.actionTitle, darkMode && { color: c.gray800 }]}>Search the web</Text>
+                  <Text style={[styles.actionSub, darkMode && { color: c.gray400 }]} numberOfLines={1}>"{text.trim()}"</Text>
                 </View>
                 <View style={styles.actionArrow}>
                   <Ionicons name="arrow-forward" size={14} color={colors.gray300} />
@@ -227,13 +230,13 @@ export function HomePage({
             </Animated.View>
 
             <Animated.View style={makeCardStyle(card2)}>
-              <TouchableOpacity style={styles.actionCard} onPress={handleSearchAI} activeOpacity={0.7}>
-                <View style={[styles.actionIcon, { backgroundColor: '#EEF2FF' }]}>
+              <TouchableOpacity style={[styles.actionCard, darkMode && { backgroundColor: c.white, borderColor: c.gray100 }]} onPress={handleSearchAI} activeOpacity={0.7}>
+                <View style={[styles.actionIcon, { backgroundColor: darkMode ? c.indigo + '20' : '#EEF2FF' }]}>
                   <Ionicons name="sparkles" size={18} color={colors.indigo} />
                 </View>
                 <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Ask AI agent</Text>
-                  <Text style={styles.actionSub} numberOfLines={1}>Browse & find answers for you</Text>
+                  <Text style={[styles.actionTitle, darkMode && { color: c.gray800 }]}>Ask AI agent</Text>
+                  <Text style={[styles.actionSub, darkMode && { color: c.gray400 }]} numberOfLines={1}>Browse & find answers for you</Text>
                 </View>
                 <View style={styles.actionArrow}>
                   <Ionicons name="arrow-forward" size={14} color={colors.gray300} />
@@ -242,13 +245,13 @@ export function HomePage({
             </Animated.View>
 
             <Animated.View style={makeCardStyle(card3)}>
-              <TouchableOpacity style={styles.actionCard} onPress={handleCreateAI} activeOpacity={0.7}>
-                <View style={[styles.actionIcon, { backgroundColor: '#FFF7ED' }]}>
+              <TouchableOpacity style={[styles.actionCard, darkMode && { backgroundColor: c.white, borderColor: c.gray100 }]} onPress={handleCreateAI} activeOpacity={0.7}>
+                <View style={[styles.actionIcon, { backgroundColor: darkMode ? c.claude + '20' : '#FFF7ED' }]}>
                   <Ionicons name="flash" size={18} color={colors.claude} />
                 </View>
                 <View style={styles.actionContent}>
-                  <Text style={styles.actionTitle}>Create with AI</Text>
-                  <Text style={styles.actionSub} numberOfLines={1}>Build a web app from this idea</Text>
+                  <Text style={[styles.actionTitle, darkMode && { color: c.gray800 }]}>Create with AI</Text>
+                  <Text style={[styles.actionSub, darkMode && { color: c.gray400 }]} numberOfLines={1}>Build a web app from this idea</Text>
                 </View>
                 <View style={styles.actionArrow}>
                   <Ionicons name="arrow-forward" size={14} color={colors.gray300} />
@@ -261,19 +264,19 @@ export function HomePage({
         {/* Quick sites - show when NOT typing */}
         {!hasText && (
           <View style={styles.sites}>
-            <Text style={styles.sitesLabel}>Quick links</Text>
+            <Text style={[styles.sitesLabel, darkMode && { color: c.gray400 }]}>Quick links</Text>
             <View style={styles.sitesGrid}>
               {SUGGESTIONS.map((s) => (
                 <TouchableOpacity
                   key={s.label}
-                  style={styles.siteChip}
+                  style={[styles.siteChip, darkMode && { backgroundColor: c.white, borderColor: c.gray100 }]}
                   onPress={() => onNavigate(s.url)}
                   activeOpacity={0.7}
                 >
                   <View style={[styles.siteIconBg, { backgroundColor: s.color + '0C' }]}>
                     <Ionicons name={s.icon as any} size={16} color={s.color} />
                   </View>
-                  <Text style={styles.siteLabel}>{s.label}</Text>
+                  <Text style={[styles.siteLabel, darkMode && { color: c.gray600 }]}>{s.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>

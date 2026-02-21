@@ -1,5 +1,5 @@
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 
 const SEARCH_PROMPT = `You are a search engine. Given a search query, return realistic, helpful search results as a complete HTML page.
 

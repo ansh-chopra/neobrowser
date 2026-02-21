@@ -1,4 +1,4 @@
-export { colors, shadows } from './colors';
+export { colors, darkColors, shadows } from './colors';
 export { typography } from './typography';
 
 export const spacing = {

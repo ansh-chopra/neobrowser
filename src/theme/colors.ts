@@ -46,6 +46,29 @@ export const colors = {
   vpnBg: '#ECFDF5',
 } as const;
 
+// Dark mode color overrides
+export const darkColors = {
+  ...colors,
+  cream: '#0F0F0F',
+  warmBg: '#141414',
+  white: '#1A1A1A',
+  black: '#FFFFFF',
+
+  gray50: '#1E1E1E',
+  gray100: '#2A2A2A',
+  gray200: '#3A3A3A',
+  gray300: '#555555',
+  gray400: '#888888',
+  gray500: '#A0A0A0',
+  gray600: '#BBBBBB',
+  gray700: '#D4D4D4',
+  gray800: '#EEEEEE',
+  gray900: '#F8F8F8',
+
+  shieldBg: '#2A2000',
+  vpnBg: '#0A2A1A',
+} as const;
+
 export const shadows = {
   soft: {
     shadowColor: '#1E1B18',

@@ -24,7 +24,7 @@ import { AIPanel, ChatMessage } from '../components/AIPanel';
 import { TabBar, Tab, getTabColor, Space, DEFAULT_SPACES } from '../components/TabBar';
 import { HomePage } from '../components/HomePage';
 import { BuilderPanel } from '../components/BuilderPanel';
-import { SettingsModal, API_KEY_STORAGE } from '../components/SettingsModal';
+import { SettingsModal, API_KEY_STORAGE, HISTORY_STORAGE, HistoryEntry } from '../components/SettingsModal';
 import { PrivacyShieldPanel } from '../components/PrivacyShieldPanel';
 import { VPNPanel, VPNServer, VPNStatus, VPN_SERVERS } from '../components/VPNPanel';
 import { sendToGemini, sendToGeminiStreaming, queryGemini, GeminiMessage, BrowserAction } from '../services/gemini';
@@ -40,7 +40,7 @@ import {
   upgradeToHttps,
   shouldBlockUrl,
 } from '../services/privacy';
-import { colors, shadows, spacing, radius, typography } from '../theme';
+import { colors, darkColors, shadows, spacing, radius, typography } from '../theme';
 
 const HOME_URL = 'neo://home';
 const SEARCH_URL = 'https://www.google.com/search?q=';
@@ -182,17 +182,32 @@ export function BrowserScreen() {
   const [vpnServer, setVpnServer] = useState<VPNServer>(VPN_SERVERS[0]);
   const [vpnPanelVisible, setVpnPanelVisible] = useState(false);
 
+  // Dark mode state
+  const [darkMode, setDarkMode] = useState(false);
+  const [forceDarkPages, setForceDarkPages] = useState(false);
+
   // Split view state
   const [splitViewActive, setSplitViewActive] = useState(false);
   const [splitTabId, setSplitTabId] = useState<string | null>(null);
   const [splitWebViewUrl, setSplitWebViewUrl] = useState('');
 
+  // Reader mode state
+  const [readerMode, setReaderMode] = useState(false);
+
   // Fab animation
   const fabScale = useRef(new Animated.Value(1)).current;
+
+  // Full-screen browsing: auto-hide bars on scroll
+  const barsAnim = useRef(new Animated.Value(1)).current;
+  const lastScrollY = useRef(0);
+  const barsHidden = useRef(false);
 
   // Screen dimensions for split view
   const screenWidth = Dimensions.get('window').width;
   const canSplitView = screenWidth >= 768; // tablet/web only
+
+  // Resolved color palette based on dark mode
+  const c = darkMode ? darkColors : colors;
 
   // Load API key: AsyncStorage overrides .env.local
   useEffect(() => {
@@ -203,7 +218,42 @@ export function BrowserScreen() {
         setApiKey(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
       }
     });
+    // Load dark mode preference
+    AsyncStorage.getItem('@neobrowser_dark_mode').then((val) => {
+      if (val === 'true') setDarkMode(true);
+    });
+    AsyncStorage.getItem('@neobrowser_force_dark').then((val) => {
+      if (val === 'true') setForceDarkPages(true);
+    });
   }, []);
+
+  const handleToggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    AsyncStorage.setItem('@neobrowser_dark_mode', next ? 'true' : 'false');
+  };
+
+  const handleToggleForceDarkPages = () => {
+    const next = !forceDarkPages;
+    setForceDarkPages(next);
+    AsyncStorage.setItem('@neobrowser_force_dark', next ? 'true' : 'false');
+  };
+
+  const handleClearSiteData = () => {
+    // Clear cookies, local storage, and cache for the current webview
+    if (Platform.OS === 'web') {
+      // For web, we can clear the iframe by reloading
+      try { localStorage.clear(); } catch {}
+    }
+    if (webViewRef.current?.clearCache) {
+      webViewRef.current.clearCache(true);
+    }
+    if (webViewRef.current?.clearFormData) {
+      webViewRef.current.clearFormData();
+    }
+    // Clear history too
+    AsyncStorage.setItem(HISTORY_STORAGE, '[]');
+  };
 
   // Listen for YouTube video play messages from iframe
   useEffect(() => {
@@ -211,6 +261,9 @@ export function BrowserScreen() {
     const handler = (event: MessageEvent) => {
       try {
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data.type === 'scroll' && typeof data.scrollY === 'number') {
+          handleWebViewScroll(data.scrollY);
+        }
         if (data.type === 'youtubePlay' && data.videoId) {
           const embedUrl = getYouTubeEmbedUrl(data.videoId);
           const ytUrl = `https://www.youtube.com/watch?v=${data.videoId}`;
@@ -233,6 +286,51 @@ export function BrowserScreen() {
   }, [activeTabId]);
 
   const showHomePage = isHomePage(currentUrl);
+
+  // Full-screen scroll handler
+  const handleWebViewScroll = (scrollY: number) => {
+    const delta = scrollY - lastScrollY.current;
+    const threshold = 10;
+    if (delta > threshold && !barsHidden.current && scrollY > 60) {
+      barsHidden.current = true;
+      Animated.timing(barsAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    } else if (delta < -threshold && barsHidden.current) {
+      barsHidden.current = false;
+      Animated.timing(barsAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
+    }
+    lastScrollY.current = scrollY;
+  };
+
+  const showBars = () => {
+    if (barsHidden.current) {
+      barsHidden.current = false;
+      Animated.timing(barsAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
+    }
+  };
+
+  // History tracking
+  const saveToHistory = async (url: string, title: string) => {
+    if (isHomePage(url) || url.startsWith('data:') || url.startsWith('neo://')) return;
+    try {
+      const data = await AsyncStorage.getItem(HISTORY_STORAGE);
+      const history: HistoryEntry[] = data ? JSON.parse(data) : [];
+      history.unshift({ url, title: title || url, timestamp: Date.now() });
+      // Keep last 200 entries
+      await AsyncStorage.setItem(HISTORY_STORAGE, JSON.stringify(history.slice(0, 200)));
+    } catch {}
+  };
 
   const shieldEnabled = privacySettings.adBlocking || privacySettings.trackerProtection ||
     privacySettings.httpsEverywhere || privacySettings.fingerprintProtection;
@@ -423,6 +521,8 @@ export function BrowserScreen() {
     setTabs((prev) =>
       prev.map((t) => (t.id === activeTabId ? { ...t, url: finalUrl } : t))
     );
+    saveToHistory(finalUrl, finalUrl);
+    showBars();
   };
 
   // AI-powered search: generates results as data URI
@@ -961,6 +1061,7 @@ export function BrowserScreen() {
       }),
     ]).start();
     setAiVisible((v) => !v);
+    showBars();
   };
 
   // Handle messages from injected privacy scripts
@@ -982,8 +1083,38 @@ export function BrowserScreen() {
     } catch {}
   };
 
-  // Generate privacy injection script
-  const privacyScript = getPrivacyInjectionScript(privacySettings);
+  // Generate privacy injection script + force-dark CSS
+  const forceDarkCSS = forceDarkPages ? `
+    (function() {
+      var s = document.createElement('style');
+      s.id = 'neo-force-dark';
+      s.textContent = 'html { filter: invert(1) hue-rotate(180deg); } img, video, canvas, svg, [style*="background-image"] { filter: invert(1) hue-rotate(180deg); }';
+      document.head.appendChild(s);
+    })();
+  ` : '';
+  const readerModeCSS = readerMode ? `
+    (function() {
+      var s = document.createElement('style');
+      s.id = 'neo-reader-mode';
+      s.textContent = \`
+        body { max-width: 680px !important; margin: 0 auto !important; padding: 24px 16px !important;
+               font-family: Georgia, 'Times New Roman', serif !important; font-size: 19px !important;
+               line-height: 1.7 !important; color: #1a1a2e !important; background: #FFFDF7 !important; }
+        nav, header, footer, aside, .sidebar, .ad, .advertisement, [class*="social"],
+        [class*="share"], [class*="comment"], [class*="related"], [class*="nav"],
+        [class*="menu"], [class*="banner"], [class*="popup"], [class*="modal"],
+        [role="navigation"], [role="banner"], [role="complementary"] { display: none !important; }
+        img { max-width: 100% !important; height: auto !important; border-radius: 8px !important; margin: 16px 0 !important; }
+        a { color: #2563EB !important; }
+        h1, h2, h3 { font-family: -apple-system, BlinkMacSystemFont, sans-serif !important; color: #1a1a2e !important; line-height: 1.3 !important; }
+        h1 { font-size: 28px !important; } h2 { font-size: 22px !important; } h3 { font-size: 18px !important; }
+        pre, code { font-size: 14px !important; background: #f5f5f5 !important; padding: 2px 6px !important; border-radius: 4px !important; }
+        pre code { display: block !important; padding: 16px !important; overflow-x: auto !important; }
+      \`;
+      document.head.appendChild(s);
+    })();
+  ` : '';
+  const privacyScript = (getPrivacyInjectionScript(privacySettings) || '') + forceDarkCSS + readerModeCSS;
 
   // Render a WebView (used for both main and split)
   const renderWebView = (viewUrl: string, ref?: any, isSplit?: boolean) => {
@@ -1038,46 +1169,55 @@ export function BrowserScreen() {
         domStorageEnabled
         startInLoadingState
         renderLoading={() => <View />}
+        onScroll={(event: any) => {
+          if (!isSplit) {
+            handleWebViewScroll(event.nativeEvent.contentOffset?.y || 0);
+          }
+        }}
+        scrollEventThrottle={16}
       />
     );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.cream} />
+    <SafeAreaView style={[styles.container, darkMode && { backgroundColor: c.cream }]} edges={['top']}>
+      <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} backgroundColor={c.cream} />
 
-      {/* Tab Bar - only when browsing */}
+      {/* Tab Bar + URL Bar - animated for full-screen browsing */}
       {!showHomePage && (
-        <TabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onSelectTab={handleSelectTab}
-          onCloseTab={handleCloseTab}
-          onNewTab={handleNewTab}
-          onBuild={() => setBuilderVisible(true)}
-          spaces={spaces}
-          activeSpaceId={activeSpaceId}
-          onSelectSpace={handleSelectSpace}
-        />
-      )}
-
-      {/* URL Bar - only when browsing */}
-      {!showHomePage && (
-        <URLBar
-          url={currentUrl}
-          onSubmit={handleNavigate}
-          onRefresh={handleRefresh}
-          canGoBack={canGoBack || !isHomePage(currentUrl)}
-          canGoForward={canGoForward}
-          onGoBack={handleGoBack}
-          onGoForward={handleGoForward}
-          loading={loading}
-          shieldEnabled={shieldEnabled}
-          shieldCount={shieldCount}
-          onShieldPress={() => setPrivacyPanelVisible(true)}
-          vpnConnected={vpnStatus === 'connected'}
-          onVpnPress={() => setVpnPanelVisible(true)}
-        />
+        <Animated.View style={{
+          opacity: barsAnim,
+          maxHeight: barsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 200] }),
+          overflow: 'hidden',
+          backgroundColor: darkMode ? c.cream : undefined,
+        }}>
+          <TabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelectTab={handleSelectTab}
+            onCloseTab={handleCloseTab}
+            onNewTab={handleNewTab}
+            onBuild={() => setBuilderVisible(true)}
+            spaces={spaces}
+            activeSpaceId={activeSpaceId}
+            onSelectSpace={handleSelectSpace}
+          />
+          <URLBar
+            url={currentUrl}
+            onSubmit={handleNavigate}
+            onRefresh={handleRefresh}
+            canGoBack={canGoBack || !isHomePage(currentUrl)}
+            canGoForward={canGoForward}
+            onGoBack={handleGoBack}
+            onGoForward={handleGoForward}
+            loading={loading}
+            shieldEnabled={shieldEnabled}
+            shieldCount={shieldCount}
+            onShieldPress={() => setPrivacyPanelVisible(true)}
+            vpnConnected={vpnStatus === 'connected'}
+            onVpnPress={() => setVpnPanelVisible(true)}
+          />
+        </Animated.View>
       )}
 
       {/* Content */}
@@ -1092,6 +1232,7 @@ export function BrowserScreen() {
             shieldEnabled={shieldEnabled}
             onShieldPress={() => setPrivacyPanelVisible(true)}
             vpnConnected={vpnStatus === 'connected'}
+            darkMode={darkMode}
           />
         ) : (
           <View style={styles.splitContainer}>
@@ -1117,11 +1258,47 @@ export function BrowserScreen() {
         )}
       </View>
 
-      {/* Bottom bar - only when browsing */}
+      {/* Bottom bar - animated for full-screen browsing */}
       {!showHomePage && (
-        <View style={styles.toolbar}>
-          <TouchableOpacity style={styles.toolbarBtn} onPress={goHome}>
-            <Ionicons name="home-outline" size={20} color={colors.gray500} />
+        <Animated.View style={[styles.toolbar, darkMode && { backgroundColor: c.white, borderTopColor: c.gray100 }, {
+          opacity: barsAnim,
+          maxHeight: barsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 100] }),
+          overflow: 'hidden',
+        }]}>
+          <TouchableOpacity style={styles.toolbarBtn} onPress={() => { goHome(); showBars(); }}>
+            <Ionicons name="home-outline" size={20} color={c.gray500} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.toolbarBtn}
+            onPress={() => {
+              setReaderMode(!readerMode);
+              // For web, inject/remove reader mode CSS dynamically
+              if (Platform.OS === 'web') {
+                const iframe = document.querySelector('iframe');
+                if (iframe?.contentDocument) {
+                  const existing = iframe.contentDocument.getElementById('neo-reader-mode');
+                  if (existing) {
+                    existing.remove();
+                  } else {
+                    const s = iframe.contentDocument.createElement('style');
+                    s.id = 'neo-reader-mode';
+                    s.textContent = 'body{max-width:680px!important;margin:0 auto!important;padding:24px 16px!important;font-family:Georgia,serif!important;font-size:19px!important;line-height:1.7!important;color:#1a1a2e!important;background:#FFFDF7!important}nav,header,footer,aside,.sidebar,.ad,[class*=social],[class*=share],[class*=comment],[class*=related],[class*=nav],[class*=menu],[class*=banner],[role=navigation],[role=banner],[role=complementary]{display:none!important}img{max-width:100%!important;height:auto!important}';
+                    iframe.contentDocument.head.appendChild(s);
+                  }
+                }
+              }
+              // For native, reload the page with the new injection script
+              if (Platform.OS !== 'web' && webViewRef.current) {
+                webViewRef.current.reload();
+              }
+            }}
+          >
+            <Ionicons
+              name={readerMode ? 'book' : 'book-outline'}
+              size={18}
+              color={readerMode ? colors.blue : c.gray500}
+            />
           </TouchableOpacity>
 
           <Animated.View style={{ transform: [{ scale: fabScale }] }}>
@@ -1140,11 +1317,24 @@ export function BrowserScreen() {
 
           <TouchableOpacity
             style={styles.toolbarBtn}
-            onPress={() => setSettingsVisible(true)}
+            onPress={() => {
+              handleToggleDarkMode();
+            }}
           >
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.gray500} />
+            <Ionicons
+              name={darkMode ? 'sunny' : 'moon-outline'}
+              size={18}
+              color={darkMode ? colors.shield : c.gray500}
+            />
           </TouchableOpacity>
-        </View>
+
+          <TouchableOpacity
+            style={styles.toolbarBtn}
+            onPress={() => { setSettingsVisible(true); showBars(); }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color={c.gray500} />
+          </TouchableOpacity>
+        </Animated.View>
       )}
 
       {/* AI Panel */}
@@ -1206,6 +1396,15 @@ export function BrowserScreen() {
           setSettingsVisible(false);
           setTimeout(() => setPrivacyPanelVisible(true), 300);
         }}
+        onNavigate={(url) => {
+          setSettingsVisible(false);
+          handleNavigate(url);
+        }}
+        darkMode={darkMode}
+        onToggleDarkMode={handleToggleDarkMode}
+        forceDarkPages={forceDarkPages}
+        onToggleForceDarkPages={handleToggleForceDarkPages}
+        onClearSiteData={handleClearSiteData}
       />
     </SafeAreaView>
   );

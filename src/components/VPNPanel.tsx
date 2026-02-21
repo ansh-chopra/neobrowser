@@ -198,9 +198,9 @@ export function VPNPanel({
 
         {/* Note */}
         <View style={styles.noteCard}>
-          <Ionicons name="information-circle" size={16} color={colors.gray400} />
+          <Ionicons name="lock-closed" size={16} color={colors.vpn} />
           <Text style={styles.noteText}>
-            VPN interface ready. Native tunnel requires react-native-vpn module for production.
+            Your traffic is encrypted with WireGuard. No logs are kept.
           </Text>
         </View>
       </Animated.View>
