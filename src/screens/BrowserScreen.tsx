@@ -1,0 +1,1100 @@
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Text,
+  Animated,
+  StatusBar,
+  Platform,
+  Dimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+// WebView only works on native - use iframe on web
+let WebView: any = null;
+if (Platform.OS !== 'web') {
+  WebView = require('react-native-webview').WebView;
+}
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { URLBar } from '../components/URLBar';
+import { AIPanel, ChatMessage } from '../components/AIPanel';
+import { TabBar, Tab, getTabColor, Space, DEFAULT_SPACES } from '../components/TabBar';
+import { HomePage } from '../components/HomePage';
+import { BuilderPanel } from '../components/BuilderPanel';
+import { SettingsModal, API_KEY_STORAGE } from '../components/SettingsModal';
+import { PrivacyShieldPanel } from '../components/PrivacyShieldPanel';
+import { VPNPanel, VPNServer, VPNStatus, VPN_SERVERS } from '../components/VPNPanel';
+import { sendToGemini, sendToGeminiStreaming, GeminiMessage, BrowserAction } from '../services/gemini';
+import { buildApp } from '../services/builder';
+import { searchWithAI } from '../services/search';
+import {
+  PrivacySettings,
+  PrivacyStats,
+  CookiePolicy,
+  DEFAULT_PRIVACY_SETTINGS,
+  INITIAL_STATS,
+  getPrivacyInjectionScript,
+  upgradeToHttps,
+  shouldBlockUrl,
+} from '../services/privacy';
+import { colors, shadows, spacing, radius, typography } from '../theme';
+
+const HOME_URL = 'neo://home';
+const SEARCH_URL = 'https://www.google.com/search?q=';
+const MAX_AGENT_STEPS = 15;
+
+function isHomePage(url: string) {
+  return url === HOME_URL || url === '';
+}
+
+function createTab(index: number, spaceId?: string): Tab {
+  return {
+    id: Date.now().toString() + Math.random().toString(36).slice(2),
+    title: 'New Tab',
+    url: HOME_URL,
+    color: getTabColor(index),
+    spaceId,
+  };
+}
+
+export function BrowserScreen() {
+  // Tab state
+  const [tabs, setTabs] = useState<Tab[]>([createTab(0, 'personal')]);
+  const [activeTabId, setActiveTabId] = useState(tabs[0].id);
+
+  // Workspace / Spaces state
+  const [spaces] = useState<Space[]>(DEFAULT_SPACES);
+  const [activeSpaceId, setActiveSpaceId] = useState('personal');
+
+  // WebView state
+  const [currentUrl, setCurrentUrl] = useState(HOME_URL);
+  const [webViewUrl, setWebViewUrl] = useState('');
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const webViewRef = useRef<any>(null);
+
+  // Refs to avoid stale closures in the agent loop
+  const currentUrlRef = useRef(currentUrl);
+  currentUrlRef.current = currentUrl;
+  const webViewUrlRef = useRef(webViewUrl);
+  webViewUrlRef.current = webViewUrl;
+
+  // Web navigation history (for web platform since iframes don't track this)
+  const navHistoryRef = useRef<string[]>([HOME_URL]);
+  const navIndexRef = useRef(0);
+
+  // AI state
+  const [aiVisible, setAiVisible] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState<GeminiMessage[]>([]);
+
+  // Agent state
+  const [agentRunning, setAgentRunning] = useState(false);
+  const agentAbortRef = useRef(false);
+
+  // Settings
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [apiKey, setApiKey] = useState(process.env.EXPO_PUBLIC_GEMINI_API_KEY || '');
+
+  // Search state (for AI search loading)
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  // Builder state
+  const [builderVisible, setBuilderVisible] = useState(false);
+  const [builderLoading, setBuilderLoading] = useState(false);
+  const [buildStage, setBuildStage] = useState('planning');
+
+  // Privacy state
+  const [privacySettings, setPrivacySettings] = useState<PrivacySettings>(DEFAULT_PRIVACY_SETTINGS);
+  const [privacyStats, setPrivacyStats] = useState<PrivacyStats>(INITIAL_STATS);
+  const [privacyPanelVisible, setPrivacyPanelVisible] = useState(false);
+
+  // VPN state
+  const [vpnStatus, setVpnStatus] = useState<VPNStatus>('disconnected');
+  const [vpnServer, setVpnServer] = useState<VPNServer>(VPN_SERVERS[0]);
+  const [vpnPanelVisible, setVpnPanelVisible] = useState(false);
+
+  // Split view state
+  const [splitViewActive, setSplitViewActive] = useState(false);
+  const [splitTabId, setSplitTabId] = useState<string | null>(null);
+  const [splitWebViewUrl, setSplitWebViewUrl] = useState('');
+
+  // Fab animation
+  const fabScale = useRef(new Animated.Value(1)).current;
+
+  // Screen dimensions for split view
+  const screenWidth = Dimensions.get('window').width;
+  const canSplitView = screenWidth >= 768; // tablet/web only
+
+  // Load API key: AsyncStorage overrides .env.local
+  useEffect(() => {
+    AsyncStorage.getItem(API_KEY_STORAGE).then((key) => {
+      if (key) {
+        setApiKey(key);
+      } else if (process.env.EXPO_PUBLIC_GEMINI_API_KEY) {
+        setApiKey(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
+      }
+    });
+  }, []);
+
+  const showHomePage = isHomePage(currentUrl);
+
+  const shieldEnabled = privacySettings.adBlocking || privacySettings.trackerProtection ||
+    privacySettings.httpsEverywhere || privacySettings.fingerprintProtection;
+  const shieldCount = privacyStats.adsBlocked + privacyStats.trackersBlocked;
+
+  // Privacy toggles
+  const handleTogglePrivacy = (key: keyof PrivacySettings) => {
+    setPrivacySettings((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const handleCookiePolicy = (policy: CookiePolicy) => {
+    setPrivacySettings((prev) => ({
+      ...prev,
+      cookiePolicy: policy,
+    }));
+  };
+
+  // VPN toggle
+  const handleToggleVPN = () => {
+    if (vpnStatus === 'disconnected') {
+      setVpnStatus('connecting');
+      // Simulate connection delay
+      setTimeout(() => setVpnStatus('connected'), 1500);
+    } else if (vpnStatus === 'connected') {
+      setVpnStatus('disconnected');
+    }
+  };
+
+  const handleSelectVpnServer = (server: VPNServer) => {
+    const wasConnected = vpnStatus === 'connected';
+    setVpnServer(server);
+    if (wasConnected) {
+      setVpnStatus('connecting');
+      setTimeout(() => setVpnStatus('connected'), 1000);
+    }
+  };
+
+  // Tab management
+  const handleNewTab = () => {
+    const newTab = createTab(tabs.length, activeSpaceId);
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+    setCurrentUrl(HOME_URL);
+    setWebViewUrl('');
+    setChatMessages([]);
+    setConversationHistory([]);
+  };
+
+  const handleCloseTab = (id: string) => {
+    if (tabs.length <= 1) return;
+    // Close split if this tab is the split tab
+    if (id === splitTabId) {
+      setSplitViewActive(false);
+      setSplitTabId(null);
+      setSplitWebViewUrl('');
+    }
+    const remaining = tabs.filter((t) => t.id !== id);
+    setTabs(remaining);
+    if (id === activeTabId) {
+      const nextTab = remaining[remaining.length - 1];
+      setActiveTabId(nextTab.id);
+      setCurrentUrl(nextTab.url);
+      if (!isHomePage(nextTab.url)) setWebViewUrl(nextTab.url);
+    }
+  };
+
+  const handleSelectTab = (id: string) => {
+    setActiveTabId(id);
+    const tab = tabs.find((t) => t.id === id);
+    if (tab) {
+      setCurrentUrl(tab.url);
+      if (!isHomePage(tab.url)) setWebViewUrl(tab.url);
+    }
+  };
+
+  const handleSelectSpace = (spaceId: string) => {
+    setActiveSpaceId(spaceId);
+    // Switch to first tab in the new space, or create one
+    const spaceTabs = tabs.filter((t) => t.spaceId === spaceId || !t.spaceId);
+    if (spaceTabs.length > 0) {
+      handleSelectTab(spaceTabs[0].id);
+    } else {
+      handleNewTab();
+    }
+  };
+
+  // Split view
+  const handleOpenSplitView = (tabId: string) => {
+    if (!canSplitView) return;
+    const tab = tabs.find((t) => t.id === tabId);
+    if (tab && !isHomePage(tab.url)) {
+      setSplitViewActive(true);
+      setSplitTabId(tabId);
+      setSplitWebViewUrl(tab.url);
+    }
+  };
+
+  const handleCloseSplitView = () => {
+    setSplitViewActive(false);
+    setSplitTabId(null);
+    setSplitWebViewUrl('');
+  };
+
+  // Navigation with HTTPS upgrade
+  const handleNavigate = (url: string) => {
+    let finalUrl = url;
+
+    // Detect search queries (no dots, not a protocol)
+    const isSearchQuery = !finalUrl.includes('.') && !finalUrl.startsWith('http') && !finalUrl.startsWith('neo://') && !finalUrl.startsWith('data:');
+
+    if (isSearchQuery) {
+      if (Platform.OS === 'web') {
+        performAISearch(finalUrl);
+        return;
+      }
+      finalUrl = `${SEARCH_URL}${encodeURIComponent(finalUrl)}`;
+    } else if (!finalUrl.startsWith('http') && !finalUrl.startsWith('neo://') && !finalUrl.startsWith('data:')) {
+      finalUrl = `https://${finalUrl}`;
+    }
+
+    // HTTPS upgrade
+    if (privacySettings.httpsEverywhere) {
+      const { url: upgradedUrl, upgraded } = upgradeToHttps(finalUrl);
+      if (upgraded) {
+        finalUrl = upgradedUrl;
+        setPrivacyStats((prev) => ({ ...prev, httpsUpgrades: prev.httpsUpgrades + 1 }));
+      }
+    }
+
+    // Check for blocked URLs (ad/tracker domains)
+    const blockResult = shouldBlockUrl(finalUrl, privacySettings);
+    if (blockResult.blocked) {
+      if (blockResult.reason === 'ad') {
+        setPrivacyStats((prev) => ({ ...prev, adsBlocked: prev.adsBlocked + 1 }));
+      } else {
+        setPrivacyStats((prev) => ({ ...prev, trackersBlocked: prev.trackersBlocked + 1 }));
+      }
+      return; // Don't navigate to blocked URL
+    }
+
+    // On web, external URLs can't load in iframes
+    if (Platform.OS === 'web' && !isHomePage(finalUrl) && !finalUrl.startsWith('data:') && !finalUrl.startsWith('neo://')) {
+      window.open(finalUrl, '_blank');
+      return;
+    }
+
+    setCurrentUrl(finalUrl);
+    if (!isHomePage(finalUrl)) {
+      setWebViewUrl(finalUrl);
+    }
+    // Push to web nav history
+    if (Platform.OS === 'web') {
+      const hist = navHistoryRef.current;
+      const idx = navIndexRef.current;
+      navHistoryRef.current = [...hist.slice(0, idx + 1), finalUrl];
+      navIndexRef.current = navHistoryRef.current.length - 1;
+      setCanGoBack(navIndexRef.current > 0);
+      setCanGoForward(false);
+    }
+    setTabs((prev) =>
+      prev.map((t) => (t.id === activeTabId ? { ...t, url: finalUrl } : t))
+    );
+  };
+
+  // AI-powered search: generates results as data URI
+  const performAISearch = async (query: string) => {
+    if (!apiKey) {
+      setSettingsVisible(true);
+      return;
+    }
+    setSearchLoading(true);
+    setLoading(true);
+    try {
+      const result = await searchWithAI(apiKey, query);
+      const htmlDataUri = `data:text/html;charset=utf-8,${encodeURIComponent(result.html)}`;
+      const searchUrl = `neo://search?q=${encodeURIComponent(query)}`;
+      setCurrentUrl(searchUrl);
+      setWebViewUrl(htmlDataUri);
+      if (Platform.OS === 'web') {
+        const hist = navHistoryRef.current;
+        const idx = navIndexRef.current;
+        navHistoryRef.current = [...hist.slice(0, idx + 1), searchUrl];
+        navIndexRef.current = navHistoryRef.current.length - 1;
+        setCanGoBack(navIndexRef.current > 0);
+        setCanGoForward(false);
+      }
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTabId
+            ? { ...t, url: searchUrl, title: result.title }
+            : t
+        )
+      );
+    } catch (error: any) {
+      console.error('AI Search error:', error);
+    }
+    setSearchLoading(false);
+    setLoading(false);
+  };
+
+  const handleHomeSearch = (query: string) => {
+    if (Platform.OS === 'web') {
+      performAISearch(query);
+    } else {
+      handleNavigate(`${SEARCH_URL}${encodeURIComponent(query)}`);
+    }
+  };
+
+  // Home page actions
+  const handleSearchAI = (query: string) => {
+    setAiVisible(true);
+    setTimeout(() => runAgentLoop(query), 300);
+  };
+
+  const handleCreateAI = (query: string) => {
+    setBuilderVisible(true);
+    setTimeout(() => handleBuild(query), 300);
+  };
+
+  const goHome = () => {
+    setCurrentUrl(HOME_URL);
+    setWebViewUrl('');
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId ? { ...t, url: HOME_URL, title: 'New Tab' } : t
+      )
+    );
+  };
+
+  const handleRefresh = () => {
+    if (Platform.OS === 'web' && currentUrl.startsWith('neo://search')) {
+      try {
+        const q = new URLSearchParams(currentUrl.split('?')[1]).get('q');
+        if (q) performAISearch(q);
+      } catch {}
+    } else {
+      webViewRef.current?.reload();
+    }
+  };
+
+  const navigateToHistoryEntry = (url: string) => {
+    setCurrentUrl(url);
+    if (isHomePage(url)) {
+      setWebViewUrl('');
+    }
+    setTabs((prev) =>
+      prev.map((t) => (t.id === activeTabId ? { ...t, url } : t))
+    );
+    setCanGoBack(navIndexRef.current > 0);
+    setCanGoForward(navIndexRef.current < navHistoryRef.current.length - 1);
+  };
+
+  const handleGoBack = () => {
+    if (Platform.OS === 'web') {
+      if (navIndexRef.current > 0) {
+        navIndexRef.current -= 1;
+        const prevUrl = navHistoryRef.current[navIndexRef.current];
+        navigateToHistoryEntry(prevUrl);
+      }
+    } else if (canGoBack) {
+      webViewRef.current?.goBack();
+    } else if (!isHomePage(currentUrl)) {
+      goHome();
+    }
+  };
+
+  const handleGoForward = () => {
+    if (Platform.OS === 'web') {
+      if (navIndexRef.current < navHistoryRef.current.length - 1) {
+        navIndexRef.current += 1;
+        const nextUrl = navHistoryRef.current[navIndexRef.current];
+        navigateToHistoryEntry(nextUrl);
+      }
+    } else {
+      webViewRef.current?.goForward();
+    }
+  };
+
+  // Rich page context extraction
+  const pageContextResolverRef = useRef<((ctx: string) => void) | null>(null);
+
+  const getPageContext = (): Promise<string> => {
+    return new Promise((resolve) => {
+      const liveUrl = currentUrlRef.current;
+      const liveWebViewUrl = webViewUrlRef.current;
+
+      if (Platform.OS === 'web') {
+        if (liveUrl.startsWith('neo://search')) {
+          try {
+            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+            if (iframe?.contentDocument) {
+              const text = iframe.contentDocument.body?.innerText?.slice(0, 3000) || '';
+              const title = iframe.contentDocument.title || '';
+              resolve(`[AI SEARCH RESULTS PAGE]\nTitle: ${title}\nURL: ${liveUrl}\nContent:\n${text}\n\nYou can use "search" action to search again, or set "done": true to give your final answer.`);
+              return;
+            }
+          } catch {}
+          resolve(`[AI SEARCH RESULTS] Page loaded at ${liveUrl}. Use "search" to refine, or set "done": true to answer.`);
+        } else if (liveWebViewUrl.startsWith('data:')) {
+          resolve(`[GENERATED APP] A generated web app is loaded. Set "done": true and answer the user.`);
+        } else {
+          resolve('[WEB PLATFORM] Answer the user\'s question directly from your knowledge. You can use "search" action to search the web. Always set "done": true when you have the answer.');
+        }
+        return;
+      }
+      if (isHomePage(liveUrl)) {
+        resolve('User is on the NeoBrowser home page. No web content loaded.');
+        return;
+      }
+      webViewRef.current?.injectJavaScript(`
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'pageContext',
+          data: (function() {
+            var title = document.title;
+            var url = window.location.href;
+            var meta = (document.querySelector('meta[name="description"]') || {}).content || '';
+
+            var interactive = [];
+            var els = document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [onclick]');
+            for (var i = 0; i < Math.min(els.length, 50); i++) {
+              var el = els[i];
+              var tag = el.tagName.toLowerCase();
+              var rect = el.getBoundingClientRect();
+              if (rect.width === 0 && rect.height === 0) continue;
+              if (rect.top > window.innerHeight * 2) continue;
+
+              var selector = '';
+              if (el.id) {
+                selector = '#' + el.id;
+              } else if (el.name) {
+                selector = tag + '[name="' + el.name + '"]';
+              } else if (el.className && typeof el.className === 'string') {
+                var cls = el.className.trim().split(/\\s+/).slice(0, 2).join('.');
+                if (cls) selector = tag + '.' + cls;
+              }
+              if (!selector) {
+                selector = tag + ':nth-of-type(' + (Array.from(el.parentElement ? el.parentElement.children : []).filter(function(c){return c.tagName===el.tagName}).indexOf(el) + 1) + ')';
+              }
+
+              var info = { tag: tag, selector: selector };
+              if (tag === 'a') info.text = (el.textContent || '').trim().slice(0, 60);
+              if (tag === 'a') info.href = el.getAttribute('href') || '';
+              if (tag === 'button' || el.getAttribute('role') === 'button') info.text = (el.textContent || '').trim().slice(0, 60);
+              if (tag === 'input') {
+                info.type = el.type || 'text';
+                info.placeholder = el.placeholder || '';
+                info.value = el.value || '';
+              }
+              if (tag === 'select') info.text = 'Select: ' + (el.options && el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : '');
+              if (tag === 'textarea') {
+                info.placeholder = el.placeholder || '';
+                info.value = (el.value || '').slice(0, 100);
+              }
+              interactive.push(info);
+            }
+
+            var text = document.body ? document.body.innerText.slice(0, 2000) : '';
+            return JSON.stringify({ title: title, url: url, meta: meta, interactive: interactive, text: text });
+          })()
+        }));
+        true;
+      `);
+      pageContextResolverRef.current = resolve;
+      setTimeout(() => {
+        if (pageContextResolverRef.current === resolve) {
+          pageContextResolverRef.current = null;
+          resolve(`Page: ${currentUrlRef.current}`);
+        }
+      }, 3000);
+    });
+  };
+
+  const waitForPage = (ms: number = 1500): Promise<void> => {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  };
+
+  const executeAction = async (action: BrowserAction): Promise<string> => {
+    switch (action.type) {
+      case 'navigate':
+        if (action.value) {
+          handleNavigate(action.value);
+          await waitForPage(2000);
+        }
+        return action.description || `Navigating to ${action.value}`;
+      case 'search':
+        if (action.value) {
+          if (Platform.OS === 'web') {
+            await performAISearch(action.value);
+          } else {
+            handleNavigate(`${SEARCH_URL}${encodeURIComponent(action.value)}`);
+          }
+          await waitForPage(2000);
+        }
+        return action.description || `Searching: ${action.value}`;
+      case 'click':
+        if (action.target) {
+          webViewRef.current?.injectJavaScript(`
+            (function() {
+              var el = document.querySelector('${action.target.replace(/'/g, "\\'")}');
+              if (el) el.click();
+            })();
+            true;
+          `);
+          await waitForPage(1500);
+        }
+        return action.description || `Clicking ${action.target}`;
+      case 'type':
+        if (action.target && action.value) {
+          const safeTarget = action.target.replace(/'/g, "\\'");
+          const safeValue = action.value.replace(/'/g, "\\'");
+          webViewRef.current?.injectJavaScript(`
+            (function() {
+              var el = document.querySelector('${safeTarget}');
+              if (el) {
+                el.focus();
+                el.value = '${safeValue}';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            })();
+            true;
+          `);
+          await waitForPage(500);
+        }
+        return action.description || `Typing in ${action.target}`;
+      case 'scroll':
+        webViewRef.current?.injectJavaScript(`
+          window.scrollBy(0, ${action.value === 'up' ? -500 : 500});
+          true;
+        `);
+        await waitForPage(500);
+        return action.description || `Scrolling ${action.value || 'down'}`;
+      case 'wait':
+        await waitForPage(parseInt(action.value || '1000', 10));
+        return action.description || 'Waiting for page...';
+      default:
+        return action.description || action.type;
+    }
+  };
+
+  // Agent loop
+  const runAgentLoop = async (userText: string) => {
+    if (!apiKey) {
+      setSettingsVisible(true);
+      return;
+    }
+
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      text: userText,
+      timestamp: Date.now(),
+    };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setAiLoading(true);
+    setAgentRunning(true);
+    agentAbortRef.current = false;
+
+    let history: GeminiMessage[] = [
+      ...conversationHistory,
+      { role: 'user', parts: [{ text: userText }] },
+    ];
+
+    try {
+      for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+        if (agentAbortRef.current) {
+          const stopMsg: ChatMessage = {
+            id: Date.now().toString() + '_stop',
+            role: 'ai',
+            text: 'Agent stopped.',
+            timestamp: Date.now(),
+          };
+          setChatMessages((prev) => [...prev, stopMsg]);
+          break;
+        }
+
+        const pageContext = await getPageContext();
+
+        // Use streaming to show the response as it comes in
+        const streamMsgId = Date.now().toString() + '_stream' + step;
+        let streamingStarted = false;
+
+        const response = await sendToGeminiStreaming(apiKey, history, pageContext, (partialText) => {
+          // Create or update a streaming message as chunks arrive
+          if (!streamingStarted) {
+            streamingStarted = true;
+            const streamMsg: ChatMessage = {
+              id: streamMsgId,
+              role: 'ai',
+              text: partialText,
+              timestamp: Date.now(),
+            };
+            setChatMessages((prev) => [...prev, streamMsg]);
+          } else {
+            setChatMessages((prev) =>
+              prev.map((m) => m.id === streamMsgId ? { ...m, text: partialText } : m)
+            );
+          }
+        });
+
+        if (Platform.OS === 'web' && response.actions) {
+          response.actions = response.actions.filter(
+            (a) => a.type === 'search'
+          );
+          if (response.actions.length === 0) {
+            response.actions = undefined;
+            response.done = true;
+          }
+        }
+
+        // Remove the streaming placeholder if we're going to show structured messages
+        if (streamingStarted) {
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamMsgId));
+        }
+
+        if (response.thought && !response.done) {
+          const stepMsg: ChatMessage = {
+            id: Date.now().toString() + '_step' + step,
+            role: 'ai',
+            text: response.thought,
+            isStep: true,
+            timestamp: Date.now(),
+          };
+          setChatMessages((prev) => [...prev, stepMsg]);
+        }
+
+        if (response.actions && response.actions.length > 0 && !response.done) {
+          for (const action of response.actions) {
+            if (agentAbortRef.current) break;
+            const desc = await executeAction(action);
+
+            const actionMsg: ChatMessage = {
+              id: Date.now().toString() + '_action' + step,
+              role: 'ai',
+              text: desc,
+              isStep: true,
+              actions: [action],
+              timestamp: Date.now(),
+            };
+            setChatMessages((prev) => [...prev, actionMsg]);
+          }
+        }
+
+        history = [
+          ...history,
+          { role: 'model', parts: [{ text: response.text }] },
+        ];
+
+        if (response.done) {
+          const finalMsg: ChatMessage = {
+            id: Date.now().toString() + '_final',
+            role: 'ai',
+            text: response.text,
+            actions: response.actions,
+            timestamp: Date.now(),
+          };
+          setChatMessages((prev) => [...prev, finalMsg]);
+          break;
+        }
+
+        history = [
+          ...history,
+          { role: 'user', parts: [{ text: '[Observation: Action executed. Provide updated page state on next call.]' }] },
+        ];
+      }
+    } catch (error: any) {
+      const errMsg: ChatMessage = {
+        id: Date.now().toString() + '_err',
+        role: 'ai',
+        text: `Error: ${error.message}`,
+        timestamp: Date.now(),
+      };
+      setChatMessages((prev) => [...prev, errMsg]);
+    }
+
+    setConversationHistory(history);
+    setAiLoading(false);
+    setAgentRunning(false);
+  };
+
+  const handleStopAgent = () => {
+    agentAbortRef.current = true;
+  };
+
+  // Builder
+  const handleBuild = async (prompt: string) => {
+    if (!apiKey) {
+      setSettingsVisible(true);
+      return;
+    }
+
+    setBuilderLoading(true);
+    setBuildStage('planning');
+
+    const stageTimer1 = setTimeout(() => setBuildStage('building'), 2000);
+    const stageTimer2 = setTimeout(() => setBuildStage('styling'), 5000);
+    const stageTimer3 = setTimeout(() => setBuildStage('testing'), 8000);
+
+    try {
+      const result = await buildApp(apiKey, prompt);
+
+      clearTimeout(stageTimer1);
+      clearTimeout(stageTimer2);
+      clearTimeout(stageTimer3);
+
+      const htmlDataUri = `data:text/html;charset=utf-8,${encodeURIComponent(result.html)}`;
+      const newTab = createTab(tabs.length, activeSpaceId);
+      newTab.title = result.title;
+      newTab.url = htmlDataUri;
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+      setCurrentUrl(htmlDataUri);
+      setWebViewUrl(htmlDataUri);
+      setBuilderVisible(false);
+    } catch (error: any) {
+      // Keep panel open so user can retry
+    }
+
+    setBuilderLoading(false);
+    setBuildStage('planning');
+  };
+
+  const handleFabPress = () => {
+    Animated.sequence([
+      Animated.spring(fabScale, {
+        toValue: 0.85,
+        useNativeDriver: true,
+        speed: 50,
+      }),
+      Animated.spring(fabScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 50,
+      }),
+    ]).start();
+    setAiVisible((v) => !v);
+  };
+
+  // Handle messages from injected privacy scripts
+  const handleWebViewMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'pageContext' && pageContextResolverRef.current) {
+        pageContextResolverRef.current(data.data);
+        pageContextResolverRef.current = null;
+      }
+      if (data.type === 'privacyStats') {
+        setPrivacyStats((prev) => ({
+          adsBlocked: prev.adsBlocked + (data.adsBlocked || 0),
+          trackersBlocked: prev.trackersBlocked + (data.trackersBlocked || 0),
+          httpsUpgrades: prev.httpsUpgrades + (data.httpsUpgrades || 0),
+          fingerprintAttempts: prev.fingerprintAttempts + (data.fingerprintAttempts || 0),
+        }));
+      }
+    } catch {}
+  };
+
+  // Generate privacy injection script
+  const privacyScript = getPrivacyInjectionScript(privacySettings);
+
+  // Render a WebView (used for both main and split)
+  const renderWebView = (viewUrl: string, ref?: any, isSplit?: boolean) => {
+    if (Platform.OS === 'web') {
+      return (
+        <iframe
+          key={viewUrl}
+          src={viewUrl}
+          style={{ flex: 1, border: 'none', width: '100%', height: '100%' } as any}
+          onLoad={() => !isSplit && setLoading(false)}
+        />
+      );
+    }
+    if (!WebView) return null;
+    return (
+      <WebView
+        ref={isSplit ? undefined : ref}
+        source={{ uri: viewUrl }}
+        style={styles.webView}
+        injectedJavaScript={privacyScript || undefined}
+        onNavigationStateChange={isSplit ? undefined : (state: any) => {
+          setCurrentUrl(state.url);
+          setCanGoBack(state.canGoBack);
+          setCanGoForward(state.canGoForward);
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === activeTabId
+                ? { ...t, url: state.url, title: state.title || t.title }
+                : t
+            )
+          );
+        }}
+        onLoadStart={isSplit ? undefined : () => setLoading(true)}
+        onLoadEnd={isSplit ? undefined : () => setLoading(false)}
+        onMessage={handleWebViewMessage}
+        onShouldStartLoadWithRequest={isSplit ? undefined : (request: any) => {
+          const blockResult = shouldBlockUrl(request.url, privacySettings);
+          if (blockResult.blocked) {
+            if (blockResult.reason === 'ad') {
+              setPrivacyStats((prev) => ({ ...prev, adsBlocked: prev.adsBlocked + 1 }));
+            } else {
+              setPrivacyStats((prev) => ({ ...prev, trackersBlocked: prev.trackersBlocked + 1 }));
+            }
+            return false;
+          }
+          return true;
+        }}
+        allowsBackForwardNavigationGestures
+        javaScriptEnabled
+        domStorageEnabled
+        startInLoadingState
+        renderLoading={() => <View />}
+      />
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.cream} />
+
+      {/* Tab Bar - only when browsing */}
+      {!showHomePage && (
+        <TabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelectTab={handleSelectTab}
+          onCloseTab={handleCloseTab}
+          onNewTab={handleNewTab}
+          onBuild={() => setBuilderVisible(true)}
+          spaces={spaces}
+          activeSpaceId={activeSpaceId}
+          onSelectSpace={handleSelectSpace}
+        />
+      )}
+
+      {/* URL Bar - only when browsing */}
+      {!showHomePage && (
+        <URLBar
+          url={currentUrl}
+          onSubmit={handleNavigate}
+          onRefresh={handleRefresh}
+          canGoBack={canGoBack || !isHomePage(currentUrl)}
+          canGoForward={canGoForward}
+          onGoBack={handleGoBack}
+          onGoForward={handleGoForward}
+          loading={loading}
+          shieldEnabled={shieldEnabled}
+          shieldCount={shieldCount}
+          onShieldPress={() => setPrivacyPanelVisible(true)}
+          vpnConnected={vpnStatus === 'connected'}
+          onVpnPress={() => setVpnPanelVisible(true)}
+        />
+      )}
+
+      {/* Content */}
+      <View style={styles.contentContainer}>
+        {showHomePage ? (
+          <HomePage
+            onSearchGoogle={handleHomeSearch}
+            onSearchAI={handleSearchAI}
+            onCreateAI={handleCreateAI}
+            onNavigate={handleNavigate}
+            privacyStats={privacyStats}
+            shieldEnabled={shieldEnabled}
+            onShieldPress={() => setPrivacyPanelVisible(true)}
+            vpnConnected={vpnStatus === 'connected'}
+          />
+        ) : (
+          <View style={styles.splitContainer}>
+            {/* Main WebView */}
+            <View style={[styles.webViewContainer, splitViewActive && styles.splitWebView]}>
+              {webViewUrl ? renderWebView(webViewUrl, webViewRef) : null}
+            </View>
+
+            {/* Split View */}
+            {splitViewActive && splitWebViewUrl && (
+              <>
+                <View style={styles.splitDivider}>
+                  <TouchableOpacity onPress={handleCloseSplitView} style={styles.splitCloseBtn}>
+                    <Ionicons name="close" size={12} color={colors.gray500} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.splitWebView}>
+                  {renderWebView(splitWebViewUrl, null, true)}
+                </View>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Bottom bar - only when browsing */}
+      {!showHomePage && (
+        <View style={styles.toolbar}>
+          <TouchableOpacity style={styles.toolbarBtn} onPress={goHome}>
+            <Ionicons name="home-outline" size={20} color={colors.gray500} />
+          </TouchableOpacity>
+
+          <Animated.View style={{ transform: [{ scale: fabScale }] }}>
+            <TouchableOpacity
+              style={[styles.fab, aiVisible && styles.fabActive]}
+              onPress={handleFabPress}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={aiVisible ? 'close' : 'sparkles'}
+                size={22}
+                color={colors.white}
+              />
+            </TouchableOpacity>
+          </Animated.View>
+
+          <TouchableOpacity
+            style={styles.toolbarBtn}
+            onPress={() => setSettingsVisible(true)}
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.gray500} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* AI Panel */}
+      <AIPanel
+        visible={aiVisible}
+        messages={chatMessages}
+        onSend={runAgentLoop}
+        onClose={() => setAiVisible(false)}
+        loading={aiLoading}
+        agentRunning={agentRunning}
+        onStop={handleStopAgent}
+        onActionTap={executeAction}
+      />
+
+      {/* Builder Panel */}
+      <BuilderPanel
+        visible={builderVisible}
+        onClose={() => setBuilderVisible(false)}
+        onBuild={handleBuild}
+        loading={builderLoading}
+        buildStage={buildStage}
+      />
+
+      {/* Privacy Shield Panel */}
+      <PrivacyShieldPanel
+        visible={privacyPanelVisible}
+        onClose={() => setPrivacyPanelVisible(false)}
+        settings={privacySettings}
+        stats={privacyStats}
+        onToggle={handleTogglePrivacy}
+        onCookiePolicy={handleCookiePolicy}
+      />
+
+      {/* VPN Panel */}
+      <VPNPanel
+        visible={vpnPanelVisible}
+        onClose={() => setVpnPanelVisible(false)}
+        status={vpnStatus}
+        selectedServer={vpnServer}
+        onToggleVPN={handleToggleVPN}
+        onSelectServer={handleSelectVpnServer}
+      />
+
+      {/* Settings */}
+      <SettingsModal
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        onSave={setApiKey}
+        currentKey={apiKey}
+        privacySettings={privacySettings}
+        onTogglePrivacy={handleTogglePrivacy}
+        onCookiePolicy={handleCookiePolicy}
+        vpnStatus={vpnStatus}
+        onOpenVPN={() => {
+          setSettingsVisible(false);
+          setTimeout(() => setVpnPanelVisible(true), 300);
+        }}
+        onOpenPrivacy={() => {
+          setSettingsVisible(false);
+          setTimeout(() => setPrivacyPanelVisible(true), 300);
+        }}
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.cream,
+  },
+  contentContainer: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  splitContainer: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  webViewContainer: {
+    flex: 1,
+  },
+  webView: {
+    flex: 1,
+    backgroundColor: colors.white,
+  },
+  splitWebView: {
+    flex: 1,
+  },
+  splitDivider: {
+    width: 8,
+    backgroundColor: colors.gray100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitCloseBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.soft,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingVertical: spacing.sm,
+    paddingBottom: spacing.md + 4,
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: colors.gray100,
+  },
+  toolbarBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fab: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.gray800,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.medium,
+  },
+  fabActive: {
+    backgroundColor: colors.blue,
+  },
+});
