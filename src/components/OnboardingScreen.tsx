@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSubscription } from '../contexts/SubscriptionContext';
 import { colors, shadows, spacing, radius, typography } from '../theme';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -25,6 +26,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const { openPaywall } = useSubscription();
 
   const goToPage = (p: number) => {
     setPage(p);
@@ -77,6 +79,23 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             <Text style={styles.pageDesc}>
               Enter your Gemini API key to unlock{'\n'}AI search, agent, and app builder.
             </Text>
+
+            <TouchableOpacity
+              style={styles.proTrialBtn}
+              onPress={() => {
+                onComplete('');
+                setTimeout(() => openPaywall(), 400);
+              }}
+            >
+              <Ionicons name="sparkles" size={16} color={colors.white} />
+              <Text style={styles.proTrialBtnText}>Try Neo Pro free for 3 days</Text>
+            </TouchableOpacity>
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
 
             <View style={styles.keyInputWrapper}>
               <TextInput
@@ -254,6 +273,41 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 26,
     marginBottom: spacing.xl,
+  },
+
+  // Pro trial
+  proTrialBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.blue,
+    paddingVertical: 14,
+    borderRadius: 16,
+    width: '100%',
+    ...shadows.medium,
+  },
+  proTrialBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    gap: spacing.md,
+    marginVertical: spacing.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.gray200,
+  },
+  dividerText: {
+    fontSize: 14,
+    color: colors.gray400,
+    fontWeight: '500',
   },
 
   // Key input

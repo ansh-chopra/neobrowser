@@ -27,9 +27,10 @@ import { BuilderPanel } from '../components/BuilderPanel';
 import { SettingsModal, API_KEY_STORAGE, HISTORY_STORAGE, HistoryEntry } from '../components/SettingsModal';
 import { PrivacyShieldPanel } from '../components/PrivacyShieldPanel';
 import { VPNPanel, VPNServer, VPNStatus, VPN_SERVERS } from '../components/VPNPanel';
-import { sendToGemini, sendToGeminiStreaming, queryGemini, GeminiMessage, BrowserAction } from '../services/gemini';
+import { sendToGemini, sendToGeminiStreaming, queryGemini, GeminiMessage, BrowserAction, AIMode } from '../services/gemini';
 import { buildApp } from '../services/builder';
 import { searchWithAI } from '../services/search';
+import { useSubscription } from '../contexts/SubscriptionContext';
 import {
   PrivacySettings,
   PrivacyStats,
@@ -162,7 +163,10 @@ export function BrowserScreen() {
 
   // Settings
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [apiKey, setApiKey] = useState(process.env.EXPO_PUBLIC_GEMINI_API_KEY || '');
+
+  // Subscription context
+  const { isPro, isBYOK, mode, apiKey, setApiKey: setSubscriptionApiKey, requireProOrBYOK, openPaywall } = useSubscription();
+  const aiMode: AIMode = isPro ? 'pro' : 'byok';
 
   // Search state (for AI search loading)
   const [searchLoading, setSearchLoading] = useState(false);
@@ -209,15 +213,8 @@ export function BrowserScreen() {
   // Resolved color palette based on dark mode
   const c = darkMode ? darkColors : colors;
 
-  // Load API key: AsyncStorage overrides .env.local
+  // Load preferences
   useEffect(() => {
-    AsyncStorage.getItem(API_KEY_STORAGE).then((key) => {
-      if (key) {
-        setApiKey(key);
-      } else if (process.env.EXPO_PUBLIC_GEMINI_API_KEY) {
-        setApiKey(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
-      }
-    });
     // Load dark mode preference
     AsyncStorage.getItem('@neobrowser_dark_mode').then((val) => {
       if (val === 'true') setDarkMode(true);
@@ -527,14 +524,11 @@ export function BrowserScreen() {
 
   // AI-powered search: generates results as data URI
   const performAISearch = async (query: string) => {
-    if (!apiKey) {
-      setSettingsVisible(true);
-      return;
-    }
+    if (!requireProOrBYOK()) return;
     setSearchLoading(true);
     setLoading(true);
     try {
-      const result = await searchWithAI(apiKey, query);
+      const result = await searchWithAI(apiKey, query, aiMode);
       const htmlDataUri = `data:text/html;charset=utf-8,${encodeURIComponent(result.html)}`;
       const searchUrl = `neo://search?q=${encodeURIComponent(query)}`;
       setCurrentUrl(searchUrl);
@@ -563,15 +557,12 @@ export function BrowserScreen() {
 
   // YouTube search: uses Gemini to suggest videos, displays embeddable results
   const performYouTubeSearch = async (query: string) => {
-    if (!apiKey) {
-      setSettingsVisible(true);
-      return;
-    }
+    if (!requireProOrBYOK()) return;
     setSearchLoading(true);
     setLoading(true);
     try {
       const prompt = `I want to watch YouTube videos about: "${query}". Give me 6 real, popular YouTube videos. Respond ONLY with a JSON array, nothing else. Format: [{"id":"dQw4w9WgXcQ","title":"Video Title","channel":"Channel Name"}]. The id must be a real 11-character YouTube video ID. Focus on well-known, popular videos that actually exist on YouTube.`;
-      const rawText = await queryGemini(apiKey, prompt);
+      const rawText = await queryGemini(apiKey, prompt, aiMode);
       let videos: { id: string; title: string; channel: string }[] = [];
       try {
         const cleaned = rawText.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
@@ -867,10 +858,7 @@ export function BrowserScreen() {
 
   // Agent loop
   const runAgentLoop = async (userText: string) => {
-    if (!apiKey) {
-      setSettingsVisible(true);
-      return;
-    }
+    if (!requireProOrBYOK()) return;
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -923,7 +911,7 @@ export function BrowserScreen() {
               prev.map((m) => m.id === streamMsgId ? { ...m, text: partialText } : m)
             );
           }
-        });
+        }, aiMode);
 
         if (Platform.OS === 'web' && response.actions) {
           response.actions = response.actions.filter(
@@ -1011,10 +999,7 @@ export function BrowserScreen() {
 
   // Builder
   const handleBuild = async (prompt: string) => {
-    if (!apiKey) {
-      setSettingsVisible(true);
-      return;
-    }
+    if (!requireProOrBYOK()) return;
 
     setBuilderLoading(true);
     setBuildStage('planning');
@@ -1024,7 +1009,7 @@ export function BrowserScreen() {
     const stageTimer3 = setTimeout(() => setBuildStage('testing'), 8000);
 
     try {
-      const result = await buildApp(apiKey, prompt);
+      const result = await buildApp(apiKey, prompt, aiMode);
 
       clearTimeout(stageTimer1);
       clearTimeout(stageTimer2);
@@ -1048,6 +1033,13 @@ export function BrowserScreen() {
   };
 
   const handleFabPress = () => {
+    // If closing the panel, always allow
+    if (aiVisible) {
+      setAiVisible(false);
+      return;
+    }
+    // Opening: require Pro or BYOK
+    if (!requireProOrBYOK()) return;
     Animated.sequence([
       Animated.spring(fabScale, {
         toValue: 0.85,
@@ -1060,7 +1052,7 @@ export function BrowserScreen() {
         speed: 50,
       }),
     ]).start();
-    setAiVisible((v) => !v);
+    setAiVisible(true);
     showBars();
   };
 
@@ -1114,7 +1106,11 @@ export function BrowserScreen() {
       document.head.appendChild(s);
     })();
   ` : '';
-  const privacyScript = (getPrivacyInjectionScript(privacySettings) || '') + forceDarkCSS + readerModeCSS;
+  // Free users get ad blocking disabled (ads shown)
+  const effectivePrivacySettings = (isPro || isBYOK)
+    ? privacySettings
+    : { ...privacySettings, adBlocking: false };
+  const privacyScript = (getPrivacyInjectionScript(effectivePrivacySettings) || '') + forceDarkCSS + readerModeCSS;
 
   // Render a WebView (used for both main and split)
   const renderWebView = (viewUrl: string, ref?: any, isSplit?: boolean) => {
@@ -1374,8 +1370,13 @@ export function BrowserScreen() {
       <SettingsModal
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
-        onSave={setApiKey}
+        onSave={(key: string) => setSubscriptionApiKey(key)}
         currentKey={apiKey}
+        isPro={isPro}
+        onOpenPaywall={() => {
+          setSettingsVisible(false);
+          setTimeout(() => openPaywall(), 300);
+        }}
         privacySettings={privacySettings}
         onTogglePrivacy={handleTogglePrivacy}
         onCookiePolicy={handleCookiePolicy}

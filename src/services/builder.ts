@@ -1,5 +1,10 @@
+import type { AIMode } from './gemini';
+
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MODEL = 'gemini-3-flash-preview';
+
+const WORKER_BASE = 'https://api.neobrowser.app';
+const WORKER_API_KEY = 'd73dfdc0125262f3e1e6fd5f59be8cde31968056e579937283f3e3dc46b67de4';
 
 export interface BuilderResult {
   html: string;
@@ -37,34 +42,55 @@ Make sure the HTML is complete and runnable. The app should look polished and pr
 
 export async function buildApp(
   apiKey: string,
-  prompt: string
+  prompt: string,
+  mode: AIMode = 'byok'
 ): Promise<BuilderResult> {
-  const response = await fetch(
-    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+  const contents = [
     {
+      role: 'user',
+      parts: [{ text: `Build this app: ${prompt}` }],
+    },
+  ];
+  const generationConfig = {
+    temperature: 0.8,
+    maxOutputTokens: 8192,
+    responseMimeType: 'application/json',
+  };
+
+  let response: Response;
+
+  if (mode === 'pro') {
+    response = await fetch(`${WORKER_BASE}/v1/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': WORKER_API_KEY,
+      },
       body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: BUILDER_PROMPT }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `Build this app: ${prompt}` }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.8,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
+        model: GEMINI_MODEL,
+        system_instruction: { parts: [{ text: BUILDER_PROMPT }] },
+        contents,
+        generationConfig,
       }),
-    }
-  );
+    });
+  } else {
+    response = await fetch(
+      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: BUILDER_PROMPT }],
+          },
+          contents,
+          generationConfig,
+        }),
+      }
+    );
+  }
 
   if (!response.ok) {
-    const err = await response.text();
     throw new Error(`API error (${response.status}): Check your API key and try again.`);
   }
 

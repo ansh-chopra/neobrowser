@@ -1,0 +1,30 @@
+{
+  "cli": {
+    "version": ">= 18.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "credentialsSource": "remote"
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "ansh@zerobillion.ai",
+        "ascAppId": "6759487820",
+        "ascApiKeyIssuerId": "354ba0eb-c425-4852-bcc7-cfadb388bb64",
+        "ascApiKeyId": "8LM68K6D2R",
+        "ascApiKeyPath": "/Users/anshchopra/Downloads/appstore-iap/Authkey-8LM68K6D2R.p8"
+      }
+    }
+  }
+}

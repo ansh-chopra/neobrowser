@@ -5,15 +5,18 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BrowserScreen } from './src/screens/BrowserScreen';
 import { OnboardingScreen } from './src/components/OnboardingScreen';
+import { PaywallScreen } from './src/components/PaywallScreen';
+import { SubscriptionProvider } from './src/contexts/SubscriptionContext';
+import { initAppsFlyer, logOnboardingComplete } from './src/services/appsflyer';
 
 const ONBOARDING_KEY = '@neobrowser_onboarding_done';
-const API_KEY_STORAGE = '@neobrowser_gemini_key';
 
 export default function App() {
   const [ready, setReady] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
+    initAppsFlyer();
     AsyncStorage.getItem(ONBOARDING_KEY).then((val) => {
       setShowOnboarding(val !== 'true');
       setReady(true);
@@ -23,8 +26,9 @@ export default function App() {
   const handleOnboardingComplete = async (apiKey: string) => {
     await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
     if (apiKey) {
-      await AsyncStorage.setItem(API_KEY_STORAGE, apiKey);
+      await AsyncStorage.setItem('@neobrowser_gemini_key', apiKey);
     }
+    logOnboardingComplete();
     setShowOnboarding(false);
   };
 
@@ -39,11 +43,14 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        {showOnboarding ? (
-          <OnboardingScreen onComplete={handleOnboardingComplete} />
-        ) : (
-          <BrowserScreen />
-        )}
+        <SubscriptionProvider>
+          {showOnboarding ? (
+            <OnboardingScreen onComplete={handleOnboardingComplete} />
+          ) : (
+            <BrowserScreen />
+          )}
+          <PaywallScreen />
+        </SubscriptionProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

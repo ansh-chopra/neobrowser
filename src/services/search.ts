@@ -1,5 +1,10 @@
+import type { AIMode } from './gemini';
+
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MODEL = 'gemini-3-flash-preview';
+
+const WORKER_BASE = 'https://api.neobrowser.app';
+const WORKER_API_KEY = 'd73dfdc0125262f3e1e6fd5f59be8cde31968056e579937283f3e3dc46b67de4';
 
 const SEARCH_PROMPT = `You are a search engine. Given a search query, return realistic, helpful search results as a complete HTML page.
 
@@ -39,31 +44,53 @@ Make results realistic - use real website names (Wikipedia, Reddit, Stack Overfl
 
 export async function searchWithAI(
   apiKey: string,
-  query: string
+  query: string,
+  mode: AIMode = 'byok'
 ): Promise<{ html: string; title: string }> {
-  const response = await fetch(
-    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+  const contents = [
     {
+      role: 'user',
+      parts: [{ text: `Search query: "${query}"` }],
+    },
+  ];
+  const generationConfig = {
+    temperature: 0.7,
+    maxOutputTokens: 8192,
+    responseMimeType: 'application/json',
+  };
+
+  let response: Response;
+
+  if (mode === 'pro') {
+    response = await fetch(`${WORKER_BASE}/v1/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': WORKER_API_KEY,
+      },
       body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: SEARCH_PROMPT }],
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `Search query: "${query}"` }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
+        model: GEMINI_MODEL,
+        system_instruction: { parts: [{ text: SEARCH_PROMPT }] },
+        contents,
+        generationConfig,
       }),
-    }
-  );
+    });
+  } else {
+    response = await fetch(
+      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: SEARCH_PROMPT }],
+          },
+          contents,
+          generationConfig,
+        }),
+      }
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`Search failed (${response.status})`);

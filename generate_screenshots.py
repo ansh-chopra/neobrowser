@@ -602,6 +602,75 @@ def make_screenshot_6():
     return img
 
 
+# ══════════════════════════════════════════════════════════════
+# SCREENSHOT 7 — Neo Pro Paywall
+# ══════════════════════════════════════════════════════════════
+def make_screenshot_7():
+    img = Image.new('RGB', (W, H), CREAM)
+    draw = ImageDraw.Draw(img)
+
+    text_center_x(draw, "Unlock everything.", 80, font(120, "Black"), BLUE)
+    text_center_x(draw, "3 days free.", 230, font(120, "Black"), GRAY800)
+
+    phone = Image.new('RGB', (PW, PH), CREAM)
+    pd = ImageDraw.Draw(phone)
+    draw_status_bar(pd, 0, 0, PW)
+
+    # Logo + Pro badge
+    logo_y = 180
+    neo_f = font(120, "Black")
+    bbox = pd.textbbox((0, 0), "neo", font=neo_f)
+    neo_w = bbox[2] - bbox[0]
+    lx = (PW - neo_w - 24) // 2
+    pd.text((lx, logo_y), "neo", font=neo_f, fill=GRAY800)
+    circle(pd, (lx + neo_w + 16, logo_y + 94), 14, BLUE)
+
+    # Pro badge
+    badge_w, badge_h = 120, 44
+    badge_x = (PW - badge_w) // 2
+    badge_y = logo_y + 150
+    rounded_rect(pd, [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h], BLUE, radius=14)
+    text_center_x(pd, "Pro", badge_y + 6, font(28, "Bold"), WHITE, PW)
+
+    # Feature cards
+    features = [
+        ("Ad-Free Browsing", "No ads, anywhere", GREEN),
+        ("AI Agent", "Ask anything, AI finds answers", BLUE),
+        ("AI Builder", "Describe an app, AI builds it", ORANGE),
+        ("AI Search", "Smarter search powered by AI", PURPLE),
+    ]
+    fy = badge_y + 80
+    for label, desc, color in features:
+        rounded_rect(pd, [56, fy, PW - 56, fy + 88], WHITE, radius=22)
+        icon_bg = color + (24,) if len(color) == 3 else color
+        rounded_rect(pd, [76, fy + 18, 128, fy + 70], (*color, 30), radius=16)
+        circle(pd, (102, fy + 44), 12, color)
+        pd.text((148, fy + 18), label, font=font(30, "Semibold"), fill=GRAY800)
+        pd.text((148, fy + 54), desc, font=font(24, "Regular"), fill=GRAY400)
+        fy += 100
+
+    # Price text
+    fy += 16
+    text_center_x(pd, "$9.99/month after 3-day free trial", fy, font(30, "Semibold"), GRAY600, PW)
+
+    # CTA button
+    fy += 60
+    btn_mx = 56
+    rounded_rect(pd, [btn_mx, fy, PW - btn_mx, fy + 86], GRAY800, radius=24)
+    text_center_x(pd, "Start Free Trial", fy + 22, font(34, "Bold"), WHITE, PW)
+
+    # Links
+    fy += 110
+    text_center_x(pd, "Restore Purchases  ·  Use your own API key", fy, font(24, "Medium"), BLUE, PW)
+
+    # Fine print
+    fy += 50
+    text_center_x(pd, "Payment charged to Apple ID. Auto-renews monthly.", fy, font(22, "Regular"), GRAY400, PW)
+
+    draw_phone_frame(img, phone, 480)
+    return img
+
+
 if __name__ == "__main__":
     shots = [
         ("01_home", make_screenshot_1),
@@ -609,6 +678,7 @@ if __name__ == "__main__":
         ("03_privacy", make_screenshot_3),
         ("04_builder", make_screenshot_5),
         ("05_youtube", make_screenshot_6),
+        ("06_paywall", make_screenshot_7),
     ]
     for name, fn in shots:
         print(f"Generating {name}...")

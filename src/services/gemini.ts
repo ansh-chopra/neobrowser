@@ -1,6 +1,11 @@
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MODEL = 'gemini-3-flash-preview';
 
+const WORKER_BASE = 'https://api.neobrowser.app';
+const WORKER_API_KEY = 'd73dfdc0125262f3e1e6fd5f59be8cde31968056e579937283f3e3dc46b67de4';
+
+export type AIMode = 'byok' | 'pro';
+
 export interface GeminiMessage {
   role: 'user' | 'model';
   parts: { text: string }[];
@@ -65,10 +70,37 @@ When done (no more actions needed):
 
 Be fast, precise, and autonomous. Complete tasks in as few steps as possible.`;
 
+async function callWorker(
+  systemPrompt: string,
+  contents: any[],
+  generationConfig: any
+): Promise<any> {
+  const response = await fetch(`${WORKER_BASE}/v1/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': WORKER_API_KEY,
+    },
+    body: JSON.stringify({
+      model: GEMINI_MODEL,
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      generationConfig,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error (${response.status}): Check your subscription status.`);
+  }
+
+  return response;
+}
+
 export async function sendToGemini(
   apiKey: string,
   messages: GeminiMessage[],
-  pageContext?: string
+  pageContext?: string,
+  mode: AIMode = 'byok'
 ): Promise<GeminiResponse> {
   const contextPart = pageContext
     ? `\n\n[PAGE STATE]\n${pageContext.slice(0, 8000)}`
@@ -81,27 +113,34 @@ export async function sendToGemini(
     })),
   }));
 
-  const response = await fetch(
-    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: AGENT_PROMPT }],
-        },
-        contents,
-        generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 2048,
-          responseMimeType: 'application/json',
-        },
-      }),
-    }
-  );
+  const generationConfig = {
+    temperature: 0.4,
+    maxOutputTokens: 2048,
+    responseMimeType: 'application/json',
+  };
+
+  let response: Response;
+
+  if (mode === 'pro') {
+    response = await callWorker(AGENT_PROMPT, contents, generationConfig);
+  } else {
+    response = await fetch(
+      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: AGENT_PROMPT }],
+          },
+          contents,
+          generationConfig,
+        }),
+      }
+    );
+  }
 
   if (!response.ok) {
-    const err = await response.text();
     throw new Error(`Gemini API error (${response.status}): Check your API key and try again.`);
   }
 
@@ -110,7 +149,6 @@ export async function sendToGemini(
 
   try {
     const parsed = JSON.parse(rawText);
-    // Support both single action and actions array
     const actions: BrowserAction[] | undefined = parsed.action
       ? [parsed.action]
       : parsed.actions || undefined;
@@ -118,7 +156,7 @@ export async function sendToGemini(
     return {
       text: parsed.text || rawText,
       actions,
-      done: parsed.done !== false, // default to true if not specified
+      done: parsed.done !== false,
       thought: parsed.thought,
     };
   } catch {
@@ -129,22 +167,33 @@ export async function sendToGemini(
 // Simple Gemini call without agent prompt - for general queries like YouTube search
 export async function queryGemini(
   apiKey: string,
-  prompt: string
+  prompt: string,
+  mode: AIMode = 'byok'
 ): Promise<string> {
-  const response = await fetch(
-    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 2048,
-        },
-      }),
-    }
-  );
+  const contents = [{ role: 'user', parts: [{ text: prompt }] }];
+  const generationConfig = {
+    temperature: 0.3,
+    maxOutputTokens: 2048,
+  };
+
+  let response: Response;
+
+  if (mode === 'pro') {
+    response = await callWorker('', contents, generationConfig);
+  } else {
+    response = await fetch(
+      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig,
+        }),
+      }
+    );
+  }
+
   if (!response.ok) {
     throw new Error(`Gemini API error (${response.status})`);
   }
@@ -159,7 +208,8 @@ export async function sendToGeminiStreaming(
   apiKey: string,
   messages: GeminiMessage[],
   pageContext?: string,
-  onChunk?: (text: string) => void
+  onChunk?: (text: string) => void,
+  mode: AIMode = 'byok'
 ): Promise<GeminiResponse> {
   const contextPart = pageContext
     ? `\n\n[PAGE STATE]\n${pageContext.slice(0, 8000)}`
@@ -172,7 +222,50 @@ export async function sendToGeminiStreaming(
     })),
   }));
 
-  const response = await fetch(
+  const generationConfig = {
+    temperature: 0.4,
+    maxOutputTokens: 2048,
+    responseMimeType: 'application/json',
+  };
+
+  let response: Response;
+
+  if (mode === 'pro') {
+    // Pro mode: use worker (non-streaming, parse same as non-streaming)
+    response = await callWorker(AGENT_PROMPT, contents, generationConfig);
+
+    if (!response.ok) {
+      throw new Error(`API error (${response.status}): Check your subscription status.`);
+    }
+
+    const data = await response.json();
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    if (onChunk) {
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed.text) onChunk(parsed.text);
+      } catch {}
+    }
+
+    try {
+      const parsed = JSON.parse(rawText);
+      const actions: BrowserAction[] | undefined = parsed.action
+        ? [parsed.action]
+        : parsed.actions || undefined;
+      return {
+        text: parsed.text || rawText,
+        actions,
+        done: parsed.done !== false,
+        thought: parsed.thought,
+      };
+    } catch {
+      return { text: rawText, done: true };
+    }
+  }
+
+  // BYOK mode: stream directly from Gemini
+  response = await fetch(
     `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`,
     {
       method: 'POST',
@@ -182,11 +275,7 @@ export async function sendToGeminiStreaming(
           parts: [{ text: AGENT_PROMPT }],
         },
         contents,
-        generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 2048,
-          responseMimeType: 'application/json',
-        },
+        generationConfig,
       }),
     }
   );

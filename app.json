@@ -2,7 +2,7 @@
   "expo": {
     "name": "Neo Browser",
     "slug": "neobrowser",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,11 +15,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ai.zerobillion.neobrowser",
+      "appleTeamId": "2JZQQST2D9",
       "buildNumber": "1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you."
       }
     },
     "android": {
@@ -34,6 +37,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": []
+    "plugins": [
+      "expo-iap",
+      "react-native-appsflyer"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1556f9a0-332d-4ffb-ace6-e8605f9e5011"
+      }
+    },
+    "owner": "ansh0"
   }
 }

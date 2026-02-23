@@ -11,6 +11,7 @@ import {
   ScrollView,
   Switch,
   Alert,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -32,6 +33,8 @@ interface SettingsModalProps {
   onClose: () => void;
   onSave: (apiKey: string) => void;
   currentKey: string;
+  isPro?: boolean;
+  onOpenPaywall?: () => void;
   privacySettings?: PrivacySettings;
   onTogglePrivacy?: (key: keyof PrivacySettings) => void;
   onCookiePolicy?: (policy: CookiePolicy) => void;
@@ -51,6 +54,8 @@ export function SettingsModal({
   onClose,
   onSave,
   currentKey,
+  isPro,
+  onOpenPaywall,
   privacySettings,
   onTogglePrivacy,
   onCookiePolicy,
@@ -187,6 +192,43 @@ export function SettingsModal({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={styles.scrollContent}>
+            {/* Subscription Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>SUBSCRIPTION</Text>
+              {isPro ? (
+                <View style={styles.settingRow}>
+                  <View style={[styles.settingIcon, { backgroundColor: colors.blue + '15' }]}>
+                    <Ionicons name="star" size={16} color={colors.blue} />
+                  </View>
+                  <View style={styles.settingInfo}>
+                    <Text style={styles.settingTitle}>Neo Pro</Text>
+                    <Text style={[styles.settingDesc, { color: colors.green }]}>Active</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.changeBtn}
+                    onPress={() => {
+                      if (Platform.OS === 'ios') {
+                        Linking.openURL('https://apps.apple.com/account/subscriptions');
+                      }
+                    }}
+                  >
+                    <Text style={styles.changeBtnText}>Manage</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.settingRow} onPress={onOpenPaywall}>
+                  <View style={[styles.settingIcon, { backgroundColor: colors.blue + '15' }]}>
+                    <Ionicons name="sparkles" size={16} color={colors.blue} />
+                  </View>
+                  <View style={styles.settingInfo}>
+                    <Text style={styles.settingTitle}>Upgrade to Pro</Text>
+                    <Text style={styles.settingDesc}>Ad-free + AI features · $9.99/mo</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.gray300} />
+                </TouchableOpacity>
+              )}
+            </View>
+
             {/* Browser Section */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>BROWSER</Text>
@@ -327,6 +369,11 @@ export function SettingsModal({
             {/* AI Section — subtle key display */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>AI</Text>
+              {isPro && (
+                <Text style={{ fontSize: 12, color: colors.gray400, marginBottom: spacing.xs }}>
+                  Pro includes AI. Or use your own key below.
+                </Text>
+              )}
               <View style={styles.settingRow}>
                 <View style={[styles.settingIcon, { backgroundColor: '#EFF6FF' }]}>
                   <Ionicons name="sparkles" size={16} color={colors.blue} />
