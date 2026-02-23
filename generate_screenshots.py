@@ -366,14 +366,14 @@ def make_screenshot_3():
 
 
 # ══════════════════════════════════════════════════════════════
-# SCREENSHOT 4 — VPN
+# SCREENSHOT 4 — Privacy Dashboard
 # ══════════════════════════════════════════════════════════════
 def make_screenshot_4():
     img = Image.new('RGB', (W, H), CREAM)
     draw = ImageDraw.Draw(img)
 
-    text_center_x(draw, "Built-in VPN.", 80, font(120, "Black"), VPN_GREEN)
-    text_center_x(draw, "One tap. Protected.", 230, font(120, "Black"), GRAY800)
+    text_center_x(draw, "Built-in Privacy.", 80, font(120, "Black"), GREEN)
+    text_center_x(draw, "Browse safely.", 230, font(120, "Black"), GRAY800)
 
     phone = Image.new('RGB', (PW, PH), WHITE)
     pd = ImageDraw.Draw(phone)
@@ -382,64 +382,63 @@ def make_screenshot_4():
     # Header
     hdr_y = 86
     circle(pd, (76, hdr_y + 38), 36, (220, 252, 231))
-    pd.text((52, hdr_y + 14), "G", font=font(40, "Bold"), fill=VPN_GREEN)
-    pd.text((126, hdr_y + 6), "VPN", font=font(44, "Bold"), fill=GRAY800)
-    pd.text((126, hdr_y + 58), "Connected \u00b7 Protected", font=font(30, "Regular"), fill=VPN_GREEN)
+    pd.text((56, hdr_y + 16), "S", font=font(40, "Bold"), fill=GREEN)
+    pd.text((126, hdr_y + 6), "Privacy Shield", font=font(44, "Bold"), fill=GRAY800)
+    pd.text((126, hdr_y + 58), "All protections active", font=font(30, "Regular"), fill=GREEN)
 
-    # Big power button
-    btn_cx, btn_cy = PW // 2, 400
+    # Big shield circle
+    btn_cx, btn_cy = PW // 2, 380
 
     # Glow
     for r in range(120, 85, -2):
         a = int(28 * (120 - r) / 35)
         gl = Image.new('RGBA', (PW, PH), (0, 0, 0, 0))
         gd = ImageDraw.Draw(gl)
-        gd.ellipse([btn_cx - r, btn_cy - r, btn_cx + r, btn_cy + r], fill=(16, 185, 129, a))
+        gd.ellipse([btn_cx - r, btn_cy - r, btn_cx + r, btn_cy + r], fill=(22, 163, 74, a))
         phone = Image.alpha_composite(phone.convert('RGBA'), gl).convert('RGB')
         pd = ImageDraw.Draw(phone)
 
-    circle(pd, (btn_cx, btn_cy), 82, VPN_GREEN)
-    pd.arc([btn_cx - 30, btn_cy - 30, btn_cx + 30, btn_cy + 30], 210, 330, fill=WHITE, width=6)
-    pd.line([(btn_cx, btn_cy - 38), (btn_cx, btn_cy - 12)], fill=WHITE, width=6)
+    circle(pd, (btn_cx, btn_cy), 82, GREEN)
+    # Shield checkmark
+    pd.text((btn_cx - 22, btn_cy - 28), "\u2713", font=font(64, "Bold"), fill=WHITE)
 
-    text_center_x(pd, "Protected", btn_cy + 110, font(40, "Semibold"), VPN_GREEN, PW)
+    text_center_x(pd, "Protected", btn_cy + 110, font(40, "Semibold"), GREEN, PW)
 
-    # Server pill
-    pill_y = btn_cy + 175
-    pill_t = "United States \u00b7 12ms"
-    pf = font(30, "Medium")
-    bbox = pd.textbbox((0, 0), pill_t, font=pf)
-    pw2 = bbox[2] - bbox[0] + 64
-    px2 = (PW - pw2) // 2
-    rounded_rect(pd, [px2, pill_y, px2 + pw2, pill_y + 58], (220, 252, 231), radius=29)
-    pd.text((px2 + 32, pill_y + 12), pill_t, font=pf, fill=VPN_GREEN)
-
-    # Servers
-    srv_y = pill_y + 100
-    pd.text((40, srv_y), "SERVER LOCATIONS", font=font(24, "Semibold"), fill=GRAY400)
-
-    servers = [
-        ("US", "United States", "12ms", True),
-        ("UK", "United Kingdom", "45ms", False),
-        ("DE", "Germany", "38ms", False),
-        ("JP", "Japan", "92ms", False),
-        ("SG", "Singapore", "78ms", False),
-        ("NL", "Netherlands", "41ms", False),
+    # Stats row
+    stat_y = btn_cy + 175
+    sw = (PW - 90) // 3
+    stats = [
+        ("1,247", "Ads Blocked", (220, 252, 231)),
+        ("894", "Trackers", (219, 234, 254)),
+        ("312", "HTTPS", (220, 252, 231)),
     ]
-    sy2 = srv_y + 52
-    for code, name, ping, sel in servers:
-        bg = (220, 252, 231) if sel else WHITE
-        rounded_rect(pd, [32, sy2, PW - 32, sy2 + 76], bg, radius=20)
-        circle(pd, (76, sy2 + 38), 24, (187, 247, 208) if sel else GRAY100)
-        cf = font(22, "Bold")
-        bbox = pd.textbbox((0, 0), code, font=cf)
-        cw = bbox[2] - bbox[0]
-        pd.text((76 - cw // 2, sy2 + 26), code, font=cf, fill=VPN_GREEN if sel else GRAY600)
-        pd.text((116, sy2 + 20), name, font=font(30, "Medium"), fill=GRAY800)
-        pd.text((PW - 156, sy2 + 24), ping, font=font(26, "Medium"), fill=GRAY400)
-        if sel:
-            pd.text((PW - 76, sy2 + 20), "\u2713", font=font(32, "Bold"), fill=VPN_GREEN)
-        sy2 += 90
+    for i, (num, label, bg) in enumerate(stats):
+        sx = 32 + i * (sw + 14)
+        rounded_rect(pd, [sx, stat_y, sx + sw, stat_y + 120], bg, radius=22)
+        pd.text((sx + 24, stat_y + 14), num, font=font(46, "Bold"), fill=GRAY800)
+        pd.text((sx + 24, stat_y + 74), label, font=font(24, "Medium"), fill=GRAY500)
+
+    # Protection list
+    py = stat_y + 160
+    pd.text((40, py), "ACTIVE PROTECTIONS", font=font(24, "Semibold"), fill=GRAY400)
+
+    protections = [
+        ("Ad Blocking", "Blocks ads on all websites", GREEN, True),
+        ("Tracker Protection", "Prevents cross-site tracking", BLUE, True),
+        ("HTTPS Everywhere", "Upgrades to secure connections", GREEN, True),
+        ("Cookie Control", "Blocks third-party cookies", PURPLE, True),
+        ("Fingerprint Guard", "Randomizes browser fingerprint", TEAL, True),
+    ]
+    ty = py + 52
+    for name, desc, color, on in protections:
+        rounded_rect(pd, [40, ty, PW - 40, ty + 76], WHITE, radius=20)
+        rounded_rect(pd, [56, ty + 14, 100, ty + 58], (*color, 30), radius=14)
+        circle(pd, (78, ty + 36), 10, color)
+        pd.text((116, ty + 12), name, font=font(30, "Semibold"), fill=GRAY800)
+        pd.text((116, ty + 46), desc, font=font(24, "Regular"), fill=GRAY400)
+        # Green check
+        pd.text((PW - 80, ty + 22), "\u2713", font=font(30, "Bold"), fill=GREEN)
+        ty += 88
 
     draw_phone_frame(img, phone, 480)
     return img
@@ -676,9 +675,10 @@ if __name__ == "__main__":
         ("01_home", make_screenshot_1),
         ("02_ai_agent", make_screenshot_2),
         ("03_privacy", make_screenshot_3),
-        ("04_builder", make_screenshot_5),
-        ("05_youtube", make_screenshot_6),
-        ("06_paywall", make_screenshot_7),
+        ("04_privacy_shield", make_screenshot_4),
+        ("05_builder", make_screenshot_5),
+        ("06_youtube", make_screenshot_6),
+        ("07_paywall", make_screenshot_7),
     ]
     for name, fn in shots:
         print(f"Generating {name}...")

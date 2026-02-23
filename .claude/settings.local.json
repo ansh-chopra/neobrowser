@@ -9,7 +9,11 @@
       "Bash(curl:*)",
       "Bash(lsof:*)",
       "Bash(xargs:*)",
-      "Bash(fc-list:*)"
+      "Bash(fc-list:*)",
+      "WebSearch",
+      "WebFetch(domain:www.vpnwholesaler.com)",
+      "WebFetch(domain:apivpn.io)",
+      "WebFetch(domain:www.purewl.com)"
     ]
   }
 }

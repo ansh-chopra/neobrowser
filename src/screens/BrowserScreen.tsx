@@ -1176,7 +1176,7 @@ export function BrowserScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, darkMode && { backgroundColor: c.cream }]} edges={['top']}>
+    <SafeAreaView style={[styles.container, darkMode && { backgroundColor: c.cream }]} edges={['top', 'bottom']}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} backgroundColor={c.cream} />
 
       {/* Tab Bar + URL Bar - animated for full-screen browsing */}

@@ -145,6 +145,17 @@ export function PaywallScreen() {
               </View>
             )}
 
+            {/* Terms & Privacy links */}
+            <View style={styles.legalRow}>
+              <TouchableOpacity onPress={() => Linking.openURL('https://neobrowser.app/terms')}>
+                <Text style={styles.legalLink}>Terms of Use</Text>
+              </TouchableOpacity>
+              <Text style={styles.linkDot}>·</Text>
+              <TouchableOpacity onPress={() => Linking.openURL('https://neobrowser.app/privacy')}>
+                <Text style={styles.legalLink}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Fine print */}
             <Text style={styles.finePrint}>
               Payment will be charged to your Apple ID account at confirmation of purchase.
@@ -356,6 +367,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.white,
+  },
+  // Legal links
+  legalRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  legalLink: {
+    fontSize: 12,
+    color: colors.gray400,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
   },
   // Fine print
   finePrint: {
